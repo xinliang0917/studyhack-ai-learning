@@ -1,0 +1,64 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+venv/
+env/
+.venv/
+*.env
+!*.example.env
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+vector_index/
+faiss.index
+metadata.pkl
+
+# Face images (personal data)
+backend/face_images/
+D:/face_images/
+
+# Uploads
+backend/uploads/
+*.log
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+
+# Logs
+*.log
+errlog.txt
+srverr.txt
+srvout.txt
+
+# Models
+*.task
+*.task.bak
+!backend/face_landmarker.task
+
+# Temp
+*.py.new
