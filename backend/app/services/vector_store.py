@@ -5,23 +5,11 @@ os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 import pickle
 import numpy as np
 
-_VECTOR_DIR_CANDIDATES = []
-if os.name == 'nt':
-    _VECTOR_DIR_CANDIDATES.append(r'D:\_codex_vector')
-_VECTOR_DIR_CANDIDATES.append(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vector_index")
+_DEFAULT_VECTOR_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vector_index"
 )
-VECTOR_DIR = None
-for _d in _VECTOR_DIR_CANDIDATES:
-    try:
-        os.makedirs(_d, exist_ok=True)
-        VECTOR_DIR = _d
-        break
-    except:
-        continue
-if VECTOR_DIR is None:
-    VECTOR_DIR = _VECTOR_DIR_CANDIDATES[-1]
-    os.makedirs(VECTOR_DIR, exist_ok=True)
+VECTOR_DIR = os.getenv("VECTOR_DIR", _DEFAULT_VECTOR_DIR)
+os.makedirs(VECTOR_DIR, exist_ok=True)
 
 class VectorStore:
     def __init__(self):
@@ -88,10 +76,15 @@ class VectorStore:
         deleted = meta.get("deleted", set())
         for i, idx in enumerate(indices[0]):
             if idx < len(meta["chunks"]) and idx not in deleted:
-                results.append({
-                    "content": meta["chunks"][idx]["content"],
+                chunk = meta["chunks"][idx]
+                item = {
+                    "content": chunk["content"],
                     "score": float(distances[0][i]),
-                })
+                }
+                for key in ("doc_id", "filename", "chunk_index"):
+                    if key in chunk:
+                        item[key] = chunk[key]
+                results.append(item)
                 if len(results) >= k:
                     break
         return results

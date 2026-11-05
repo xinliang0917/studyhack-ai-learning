@@ -16,6 +16,7 @@
       >
         <el-menu-item index="/dashboard"><el-icon><DataBoard /></el-icon><span>首页</span></el-menu-item>
         <el-menu-item index="/knowledge"><el-icon><Folder /></el-icon><span>知识库</span></el-menu-item>
+        <el-menu-item index="/rag"><el-icon><ChatDotRound /></el-icon><span>AI 问答</span></el-menu-item>
         <el-menu-item index="/course"><el-icon><Reading /></el-icon><span>课程大纲</span></el-menu-item>
         <el-menu-item index="/quiz"><el-icon><Edit /></el-icon><span>在线测验</span></el-menu-item>
         <el-menu-item index="/wrong-questions"><el-icon><Warning /></el-icon><span>错题本</span></el-menu-item>

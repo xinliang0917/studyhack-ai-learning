@@ -41,6 +41,9 @@ const commandMap = {
   '打开首页': '/dashboard',
   '知识库': '/knowledge',
   '打开知识库': '/knowledge',
+  'AI问答': '/rag',
+  '智能问答': '/rag',
+  '打开问答': '/rag',
   '课程大纲': '/course',
   '打开课程': '/course',
   '开始测验': '/quiz',
@@ -202,6 +205,10 @@ function readCurrentPage() {
   }
   if (path === '/knowledge') {
     speak('知识库页面')
+    return
+  }
+  if (path === '/rag') {
+    speak('知识库智能问答页面')
     return
   }
   // Generic fallback - try to read page title

@@ -13,6 +13,22 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 SUPPORTED_TYPES = {"pdf", "docx", "txt", "md", "markdown", "pptx"}
 
+
+def _collect_chunks(db: Session) -> list:
+    rows = db.query(KnowledgeChunk, KnowledgeDoc.filename).join(
+        KnowledgeDoc, KnowledgeChunk.doc_id == KnowledgeDoc.id
+    ).all()
+    return [
+        {
+            "content": chunk.content,
+            "index": chunk.id,
+            "doc_id": chunk.doc_id,
+            "chunk_index": chunk.chunk_index,
+            "filename": filename,
+        }
+        for chunk, filename in rows
+    ]
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
@@ -35,9 +51,7 @@ async def upload_document(
     for i, chunk in enumerate(chunks):
         db.add(KnowledgeChunk(doc_id=doc.id, chunk_index=i, content=chunk["content"]))
     db.commit()
-    all_chunks = []
-    for c in db.query(KnowledgeChunk).all():
-        all_chunks.append({"content": c.content, "index": c.id})
+    all_chunks = _collect_chunks(db)
     if all_chunks:
         try:
             vector_store.build_index(all_chunks)
@@ -80,9 +94,8 @@ def delete_document(
 
 @router.post("/refresh")
 def refresh_index(db: Session = Depends(get_db)):
-    all_chunks = db.query(KnowledgeChunk).all()
-    if all_chunks:
-        chunks = [{"content": c.content, "index": c.id} for c in all_chunks]
+    chunks = _collect_chunks(db)
+    if chunks:
         try:
             vector_store.build_index(chunks)
         except Exception as e:
