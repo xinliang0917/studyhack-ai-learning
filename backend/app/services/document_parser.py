@@ -1,4 +1,5 @@
 ﻿import os
+import uuid
 from typing import List
 
 class DocumentParser:
@@ -73,11 +74,23 @@ class DocumentParser:
         return [line for line in content.split("\n") if line.strip()]
 
     @staticmethod
-    def save_upload(file_content: bytes, filename: str) -> str:
-        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads"), exist_ok=True)
-        # Remove any path traversal
-        safe_name = os.path.basename(filename)
-        file_path = os.path.join(DocumentParser.EXTRACT_DIR, safe_name)
+    def save_upload(file_content: bytes, filename: str, user_id: int = None) -> str:
+        safe_name = os.path.basename(filename) or "upload.bin"
+        target_dir = DocumentParser.EXTRACT_DIR
+        if user_id is not None:
+            target_dir = os.path.join(target_dir, str(user_id))
+        os.makedirs(target_dir, exist_ok=True)
+        file_path = os.path.join(target_dir, f"{uuid.uuid4().hex}_{safe_name}")
         with open(file_path, "wb") as f:
             f.write(file_content)
         return file_path
+
+    @staticmethod
+    def delete_file(file_path: str) -> bool:
+        if not file_path or not os.path.exists(file_path):
+            return False
+        try:
+            os.remove(file_path)
+            return True
+        except OSError:
+            return False

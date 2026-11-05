@@ -28,6 +28,9 @@ class AnswerSubmit(BaseModel):
     exam_id: int
     answers: dict
 
+class WrongReviewRequest(BaseModel):
+    quality: int = 3
+
 class ExamResultResponse(BaseModel):
     id: int
     score: float
@@ -53,6 +56,11 @@ class WrongQuestionResponse(BaseModel):
     difficulty: Optional[str] = None
     chapter_id: Optional[int] = None
     options: Optional[Any] = None
+    sources: Optional[Any] = None
+    next_review_at: Optional[datetime] = None
+    interval_days: Optional[int] = None
+    repetitions: Optional[int] = None
+    ease_factor: Optional[float] = None
 
     class Config:
         from_attributes = True

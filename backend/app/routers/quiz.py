@@ -1,7 +1,7 @@
 import json, time
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func as sqlfunc, distinct
+from sqlalchemy import func as sqlfunc, distinct, select
 from typing import List
 from datetime import datetime, timedelta
 from app.database import get_db
@@ -9,8 +9,10 @@ from app.models.quiz import QuizQuestion, ExamResult, WrongQuestion
 from app.models.course import Chapter, CourseOutline
 from app.schemas.quiz import (
     QuizGenerateByCourseRequest, QuizGenerateRequest,
-    QuestionResponse, AnswerSubmit, ExamResultResponse, WrongQuestionResponse
+    QuestionResponse, AnswerSubmit, ExamResultResponse, WrongQuestionResponse,
+    WrongReviewRequest,
 )
+from app.services.llm_service import LLMService
 from app.services.quiz_engine import QuizEngine
 from app.services.vector_store import vector_store
 from app.utils.auth import get_current_user
@@ -19,6 +21,28 @@ router = APIRouter(prefix="/api/quiz", tags=["quiz"])
 
 def _get_user(user_id):
     return user_id
+
+
+def _slim_sources(sources):
+    slim = []
+    for source in sources:
+        slim.append({
+            key: (source.get(key, "")[:300] if key == "content" else source.get(key))
+            for key in ("doc_id", "filename", "chunk_index", "content")
+            if source.get(key) is not None
+        })
+    return slim
+
+
+def _chapter_sources(chapters, user_id):
+    result = {}
+    for idx, title in enumerate(chapters):
+        try:
+            hits = vector_store.search(title, 2, user_id=user_id)
+        except Exception:
+            hits = []
+        result[idx] = _slim_sources(hits)
+    return result
 
 
 @router.post("/generate-by-course")
@@ -42,6 +66,7 @@ def generate_by_course(
         raise HTTPException(status_code=400, detail="知识库内容为空，请先上传文档")
 
     chapter_titles = [ch.title for ch in chapters]
+    chapter_sources = _chapter_sources(chapter_titles, user_id)
 
     # Distribute total count evenly across chapters, with remainder going to first few
     per_chapter = max(1, data.count // len(chapters))
@@ -90,6 +115,7 @@ def generate_by_course(
             correct_answer=q.get("answer", ""),
             difficulty=data.difficulty,
             explanation=q.get("explanation", ""),
+            source_chunks=chapter_sources.get(ch_idx, []),
             exam_id=0,
         )
         db.add(qobj)
@@ -145,6 +171,7 @@ def generate_quiz(
         raise HTTPException(status_code=400, detail="知识库为空，请先上传文档")
 
     chapter_titles = [ch.title for ch in chapters]
+    chapter_sources = _chapter_sources(chapter_titles, user_id)
 
     per_chapter = max(1, data.count // len(chapters))
     remainder = data.count - per_chapter * len(chapters)
@@ -182,6 +209,7 @@ def generate_quiz(
             correct_answer=q.get("answer", ""),
             difficulty=data.difficulty,
             explanation=q.get("explanation", ""),
+            source_chunks=chapter_sources.get(ch_idx, []),
             exam_id=0,
         )
         db.add(qobj)
@@ -282,6 +310,7 @@ def submit_exam(
                 user_id=user_id,
                 question_id=wrong_id,
                 user_answer=data.answers.get(str(wrong_id), ""),
+                next_review_at=datetime.utcnow(),
             )
             db.add(wq)
 
@@ -438,14 +467,15 @@ def get_wrong_questions(
 ):
     """Get wrong questions with optional chapter/difficulty filter."""
     wrong_subq = (
-        db.query(WrongQuestion.question_id)
-        .filter(WrongQuestion.user_id == user_id)
+        select(WrongQuestion.question_id)
+        .where(WrongQuestion.user_id == user_id)
         .distinct()
-        .subquery()
     )
-    latest_answers = {}
-    for w in db.query(WrongQuestion).filter(WrongQuestion.user_id == user_id).all():
-        latest_answers[w.question_id] = w.user_answer
+    latest_records = {}
+    for w in db.query(WrongQuestion).filter(
+        WrongQuestion.user_id == user_id
+    ).order_by(WrongQuestion.id).all():
+        latest_records[w.question_id] = w
 
     questions = db.query(QuizQuestion).filter(QuizQuestion.id.in_(wrong_subq)).all()
     q_by_id = {q.id: q for q in questions}
@@ -455,8 +485,8 @@ def get_wrong_questions(
 
     result = []
     seen = set()
-    for q_id_str in sorted(latest_answers.keys(), reverse=True):
-        q = q_by_id.get(int(q_id_str))
+    for q_id in sorted(latest_records.keys(), reverse=True):
+        q = q_by_id.get(int(q_id))
         if not q or q.id in seen:
             continue
         seen.add(q.id)
@@ -465,20 +495,142 @@ def get_wrong_questions(
         if difficulty and q.difficulty != difficulty:
             continue
         ch = chapters.get(q.chapter_id)
+        w = latest_records.get(q.id)
         result.append(WrongQuestionResponse(
             id=q.id,
             question_id=q.id,
             question_text=q.question_text,
             correct_answer=q.correct_answer,
-            user_answer=latest_answers.get(q.id, ""),
+            user_answer=w.user_answer if w else "",
             explanation=q.explanation,
             chapter_title=ch.title if ch else "",
             difficulty=q.difficulty,
             chapter_id=q.chapter_id,
             options=q.options_json or {},
+            sources=q.source_chunks or [],
+            next_review_at=w.next_review_at if w else None,
+            interval_days=w.interval_days if w else 0,
+            repetitions=w.repetitions if w else 0,
+            ease_factor=w.ease_factor if w else 2.5,
         ))
 
     return result
+
+
+@router.get("/wrong-questions/review", response_model=List[WrongQuestionResponse])
+def review_queue(
+    limit: int = Query(20),
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    """Get wrong questions due for SM-2 review."""
+    items = get_wrong_questions(None, None, db=db, user_id=user_id)
+    now = datetime.utcnow()
+    due = [
+        item for item in items
+        if item.next_review_at is None or item.next_review_at <= now
+    ]
+    due.sort(key=lambda item: item.next_review_at or datetime.min)
+    return due[:max(1, min(limit, 100))]
+
+
+@router.post("/wrong-questions/{question_id}/review")
+def review_wrong_question(
+    question_id: int,
+    data: WrongReviewRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    record = db.query(WrongQuestion).filter(
+        WrongQuestion.user_id == user_id,
+        WrongQuestion.question_id == question_id,
+    ).order_by(WrongQuestion.id.desc()).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="错题记录不存在")
+
+    quality = max(0, min(5, int(data.quality)))
+    ease = record.ease_factor or 2.5
+    repetitions = record.repetitions or 0
+    interval = record.interval_days or 0
+
+    if quality < 3:
+        repetitions = 0
+        interval = 1
+    else:
+        if repetitions == 0:
+            interval = 1
+        elif repetitions == 1:
+            interval = 6
+        else:
+            interval = max(1, round(interval * ease))
+        repetitions += 1
+    ease = max(1.3, ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)))
+
+    now = datetime.utcnow()
+    record.ease_factor = ease
+    record.repetitions = repetitions
+    record.interval_days = interval
+    record.last_reviewed_at = now
+    record.next_review_at = now + timedelta(days=interval)
+    record.reviewed = 1
+    db.commit()
+    return {
+        "question_id": question_id,
+        "quality": quality,
+        "ease_factor": round(ease, 3),
+        "repetitions": repetitions,
+        "interval_days": interval,
+        "next_review_at": record.next_review_at,
+    }
+
+
+@router.post("/wrong-questions/{question_id}/explain")
+def explain_wrong_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    question = db.query(QuizQuestion).filter(QuizQuestion.id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    record = db.query(WrongQuestion).filter(
+        WrongQuestion.user_id == user_id,
+        WrongQuestion.question_id == question_id,
+    ).order_by(WrongQuestion.id.desc()).first()
+
+    try:
+        sources = vector_store.search(
+            f"{question.question_text} {question.correct_answer}", 3, user_id=user_id
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"知识库检索不可用：{exc}") from exc
+    if not sources:
+        raise HTTPException(status_code=400, detail="知识库中未找到可用于解析的内容")
+
+    context = "\n\n".join(
+        f"[{i}] 来源：{s.get('filename') or '知识库'}\n{s['content']}"
+        for i, s in enumerate(sources, start=1)
+    )
+    prompt = f"""你是一位耐心的学科老师。请基于检索片段，帮助学生理解这道错题。
+
+【题目】{question.question_text}
+【选项】{question.options_json or {}}
+【正确答案】{question.correct_answer}
+【学生答案】{record.user_answer if record else ''}
+【检索片段】
+{context}
+
+要求：
+1. 指出学生可能的错误原因。
+2. 给出正确推理过程，并标注引用编号 [1][2]。
+3. 只用片段中的信息，不要编造。
+4. 使用中文，条理清晰。"""
+    answer = LLMService.chat(
+        [{"role": "user", "content": prompt}], temperature=0.3
+    )
+    if answer.startswith("[LLM Error"):
+        raise HTTPException(status_code=502, detail="大模型调用失败，请稍后重试")
+    return {"answer": answer, "sources": sources}
 
 
 @router.post("/wrong-questions/practice")
@@ -490,10 +642,9 @@ def practice_wrong_questions(
 ):
     """Generate practice session from wrong questions."""
     wrong_subq = (
-        db.query(WrongQuestion.question_id)
-        .filter(WrongQuestion.user_id == user_id)
+        select(WrongQuestion.question_id)
+        .where(WrongQuestion.user_id == user_id)
         .distinct()
-        .subquery()
     )
     questions = db.query(QuizQuestion).filter(QuizQuestion.id.in_(wrong_subq)).all()
 

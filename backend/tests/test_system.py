@@ -48,9 +48,12 @@ fastapi_app.dependency_overrides[db_dep] = _test_get_db
 
 @pytest.fixture(autouse=True)
 def _setup_db():
+    from app.services.vector_store import vector_store
+    vector_store.clear()
     Base.metadata.create_all(bind=new_engine)
     yield
     Base.metadata.drop_all(bind=new_engine)
+    vector_store.clear()
 
 
 @pytest.fixture(scope="session", autouse=True)

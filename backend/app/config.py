@@ -24,8 +24,21 @@ class Settings:
         self.jwt_expiration_hours = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
         self.server_host = os.getenv("SERVER_HOST", "0.0.0.0")
         self.server_port = int(os.getenv("SERVER_PORT", "8000"))
-        self.embedding_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        self.embedding_enabled = os.getenv("EMBEDDING_ENABLED", "true").lower() == "true"
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+        self.embedding_device = os.getenv("EMBEDDING_DEVICE", "")
+        self.retrieval_mode = os.getenv("RETRIEVAL_MODE", "hybrid").lower()
+        self.rerank_enabled = os.getenv("RERANK_ENABLED", "false").lower() == "true"
+        self.rerank_model = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
         self.rag_max_distance = float(os.getenv("RAG_MAX_DISTANCE", "1.6"))
+        self.max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "50"))
+        self.cors_origins = os.getenv(
+            "CORS_ORIGINS", "http://localhost:5173,http://localhost:8000"
+        )
+        self.llm_provider = os.getenv("LLM_PROVIDER", "deepseek").lower()
+        self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+        self.ollama_api_key = os.getenv("OLLAMA_API_KEY", "ollama")
 
     @property
     def database_url(self) -> str:

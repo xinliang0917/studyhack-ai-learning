@@ -19,6 +19,8 @@
         </el-form-item>
         <el-form-item>
           <el-button @click="loadWrongQuestions">刷新</el-button>
+          <el-button type="success" @click="loadReviewQueue">今日复习 ({{ reviewCount }})</el-button>
+          <el-button v-if="reviewMode" @click="exitReview">退出复习</el-button>
           <el-button type="primary" @click="togglePracticeMode">
             {{ practiceMode ? '退出重练' : '错题重练' }}
           </el-button>
@@ -106,6 +108,14 @@
             show-icon
           />
         </div>
+        <div v-if="reviewMode" style="margin-bottom: 16px">
+          <el-alert
+            title="SM-2 复习模式 — 按掌握程度评价，系统会自动安排下次复习"
+            type="success"
+            :closable="false"
+            show-icon
+          />
+        </div>
 
         <div v-for="(w, i) in wrongList" :key="w.id"
              style="margin-bottom: 16px; padding: 16px; background: #fafafa; border-radius: 8px;
@@ -158,6 +168,22 @@
             <el-icon><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v5a4.47 4.47 0 0 0 2.5-1.5zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></el-icon> 朗读
           </el-button>
 
+          <div v-if="!practiceMode" class="q-actions">
+            <el-button text size="small" type="primary" @click="openExplain(w)">AI 解析</el-button>
+            <el-button v-if="!reviewMode" text size="small" type="success" @click="openReview(w)">复习</el-button>
+            <span v-if="w.next_review_at" class="next-review">下次复习：{{ formatReviewDate(w.next_review_at) }}</span>
+          </div>
+
+          <div v-if="reviewMode" class="review-inline">
+            <span>掌握程度：</span>
+            <el-button
+              v-for="q in qualityOptions"
+              :key="q.value"
+              size="small"
+              @click="reviewInline(w, q.value)"
+            >{{ q.label }}</el-button>
+          </div>
+
           <el-button v-if="practiceMode && practiceAnswers[String(w.question_id)] && !showAnswer[w.question_id]"
                      type="primary" size="small" style="margin-top: 8px"
                      @click="checkPracticeAnswer(w)">
@@ -173,13 +199,52 @@
         </div>
       </template>
     </el-card>
+
+    <el-dialog v-model="explainDialog" title="AI 错题解析" width="62%" top="6vh">
+      <div v-if="explainLoading" class="explain-loading">正在基于知识库生成解析...</div>
+      <template v-else>
+        <div class="explain-answer">{{ explainData.answer }}</div>
+        <div v-if="explainData.sources && explainData.sources.length" class="explain-sources">
+          <div class="sources-title">引用来源</div>
+          <div v-for="(s, i) in explainData.sources" :key="i" class="explain-source">
+            <span class="source-no">[{{ i + 1 }}]</span>
+            {{ s.filename || '知识库片段' }}：{{ s.content }}
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="explainDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="reviewDialog" title="复习评价" width="440px">
+      <p class="review-question">{{ reviewingItem && reviewingItem.question_text }}</p>
+      <p class="review-tip">根据掌握程度选择，系统会按 SM-2 安排下次复习。</p>
+      <div class="quality-buttons">
+        <el-button
+          v-for="q in qualityOptions"
+          :key="q.value"
+          @click="submitReview(q.value)"
+        >{{ q.label }}</el-button>
+      </div>
+      <div v-if="reviewResult" class="review-result">
+        下次复习：{{ formatReviewDate(reviewResult.next_review_at) }}（间隔 {{ reviewResult.interval_days }} 天）
+      </div>
+    </el-dialog>
   </AppLayout>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import AppLayout from '../components/AppLayout.vue'
-import { getWrongQuestions, getWrongStats } from '../api/quiz'
+import {
+  getWrongQuestions,
+  getWrongStats,
+  getReviewQueue,
+  reviewWrongQuestion,
+  explainWrongQuestion,
+} from '../api/quiz'
 import { speak } from '../composables/useVoice'
 
 const wrongList = ref([])
@@ -190,6 +255,22 @@ const practiceAnswers = ref({})
 const showAnswer = ref({})
 const allChapters = ref([])
 const stats = ref(null)
+const reviewMode = ref(false)
+const reviewCount = ref(0)
+const explainDialog = ref(false)
+const explainLoading = ref(false)
+const explainData = ref({ answer: '', sources: [] })
+const reviewDialog = ref(false)
+const reviewingItem = ref(null)
+const reviewResult = ref(null)
+const qualityOptions = [
+  { value: 0, label: '完全忘记' },
+  { value: 1, label: '几乎不会' },
+  { value: 2, label: '模糊' },
+  { value: 3, label: '困难' },
+  { value: 4, label: '良好' },
+  { value: 5, label: '轻松' },
+]
 
 const hasAnyPracticeAnswer = computed(() => {
   return Object.keys(practiceAnswers.value).length > 0
@@ -235,16 +316,101 @@ async function loadStats() {
   } catch (e) { console.error("loadStats error:", e) }
 }
 
+async function loadReviewCount() {
+  try {
+    const res = await getReviewQueue(100)
+    reviewCount.value = (res.data || []).length
+  } catch (e) { /* ignore */ }
+}
+
+async function loadReviewQueue() {
+  try {
+    const res = await getReviewQueue(20)
+    wrongList.value = res.data || []
+    reviewMode.value = true
+    practiceMode.value = false
+    if (!wrongList.value.length) ElMessage.info('暂无到期错题')
+  } catch (e) {
+    ElMessage.error('加载复习队列失败')
+  }
+}
+
+function exitReview() {
+  reviewMode.value = false
+  loadWrongQuestions()
+  loadStats()
+}
+
+async function openExplain(w) {
+  explainDialog.value = true
+  explainLoading.value = true
+  explainData.value = { answer: '', sources: [] }
+  try {
+    const res = await explainWrongQuestion(w.question_id)
+    explainData.value = res.data
+  } catch (e) {
+    explainData.value = {
+      answer: e.response?.data?.detail || '解析失败，请稍后重试',
+      sources: [],
+    }
+  } finally {
+    explainLoading.value = false
+  }
+}
+
+function openReview(w) {
+  reviewingItem.value = w
+  reviewResult.value = null
+  reviewDialog.value = true
+}
+
+async function submitReview(quality) {
+  if (!reviewingItem.value) return
+  try {
+    const res = await reviewWrongQuestion(reviewingItem.value.question_id, quality)
+    reviewResult.value = res.data
+    ElMessage.success('已记录')
+    loadReviewCount()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '记录失败')
+  }
+}
+
+async function reviewInline(w, quality) {
+  try {
+    const res = await reviewWrongQuestion(w.question_id, quality)
+    ElMessage.success('已记录，下次复习 ' + formatReviewDate(res.data.next_review_at))
+    wrongList.value = wrongList.value.filter(item => item.question_id !== w.question_id)
+    reviewCount.value = Math.max(0, reviewCount.value - 1)
+  } catch (e) {
+    ElMessage.error('记录失败')
+  }
+}
+
+function formatReviewDate(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 onMounted(async () => {
   await loadWrongQuestions()
   await loadStats()
+  await loadReviewCount()
 })
 
-watch(filterChapterId, () => loadWrongQuestions())
-watch(filterDifficulty, () => loadWrongQuestions())
+watch(filterChapterId, () => { if (!reviewMode.value) loadWrongQuestions() })
+watch(filterDifficulty, () => { if (!reviewMode.value) loadWrongQuestions() })
 
 function togglePracticeMode() {
   practiceMode.value = !practiceMode.value
+  reviewMode.value = false
   practiceAnswers.value = {}
   showAnswer.value = {}
   if (practiceMode.value) {
@@ -372,5 +538,71 @@ function checkAllPractice() {
 :deep(.el-radio.is-bordered) {
   margin-left: 0 !important;
   margin-right: 0 !important;
+}
+.q-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.next-review {
+  color: #909399;
+  font-size: 12px;
+}
+.review-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.explain-loading {
+  color: #909399;
+  padding: 20px 0;
+}
+.explain-answer {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  color: #303133;
+}
+.explain-sources {
+  margin-top: 16px;
+}
+.sources-title {
+  color: #909399;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.explain-source {
+  background: #fafafa;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+.source-no {
+  color: #409eff;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.review-question {
+  font-weight: 600;
+  color: #303133;
+}
+.review-tip {
+  color: #909399;
+  font-size: 13px;
+}
+.quality-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.review-result {
+  margin-top: 16px;
+  color: #67c23a;
 }
 </style>

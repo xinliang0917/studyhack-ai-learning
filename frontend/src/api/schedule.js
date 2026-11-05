@@ -11,3 +11,10 @@ export const toggleSchedule = (id) => api.patch(`/schedule/items/${id}/toggle`)
 export const deleteSchedule = (id) => api.delete(`/schedule/items/${id}`)
 
 export const getScheduleStats = () => api.get("/schedule/stats")
+
+export const autoPlan = (outlineId, days = 7, startDate = null) =>
+  api.post("/schedule/auto-plan", {
+    outline_id: outlineId,
+    days,
+    start_date: startDate,
+  })

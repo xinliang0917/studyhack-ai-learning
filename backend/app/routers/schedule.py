@@ -1,12 +1,19 @@
-from datetime import datetime, timedelta
+import math
+from datetime import date, datetime, time, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.course import Chapter, CourseOutline
 from app.models.schedule import ScheduleItem
-from app.schemas.schedule import ScheduleCreate, ScheduleResponse, ScheduleUpdate
+from app.schemas.schedule import (
+    AutoPlanRequest,
+    ScheduleCreate,
+    ScheduleResponse,
+    ScheduleUpdate,
+)
 from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -157,6 +164,62 @@ def delete_item(
     db.delete(item)
     db.commit()
     return {"message": "任务已删除"}
+
+
+@router.post("/auto-plan")
+def auto_plan(
+    data: AutoPlanRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    _validate(item_type=data.item_type)
+    outline = db.query(CourseOutline).filter(
+        CourseOutline.id == data.outline_id,
+        CourseOutline.user_id == user_id,
+    ).first()
+    if not outline:
+        raise HTTPException(status_code=404, detail="课程大纲不存在")
+    chapters = db.query(Chapter).filter(
+        Chapter.outline_id == outline.id,
+        Chapter.parent_id == 0,
+    ).order_by(Chapter.sort_order).all()
+    if not chapters:
+        raise HTTPException(status_code=400, detail="该大纲没有章节")
+
+    start = data.start_date or date.today()
+    days = max(1, min(data.days, 60))
+    per_day = max(1, math.ceil(len(chapters) / days))
+    existing_titles = {
+        item.title for item in db.query(ScheduleItem).filter(
+            ScheduleItem.user_id == user_id,
+            ScheduleItem.course == outline.title,
+        ).all()
+    }
+
+    created = []
+    for idx, chapter in enumerate(chapters):
+        title = f"学习：{chapter.title}"
+        if title in existing_titles:
+            continue
+        day_offset = min(idx // per_day, days - 1)
+        due_at = datetime.combine(start + timedelta(days=day_offset), time(hour=20))
+        item = ScheduleItem(
+            user_id=user_id,
+            title=title,
+            item_type=data.item_type,
+            course=outline.title,
+            due_at=due_at,
+            status="todo",
+            priority="normal",
+            notes="由课程大纲自动生成",
+        )
+        db.add(item)
+        created.append(item)
+
+    db.commit()
+    for item in created:
+        db.refresh(item)
+    return {"created": len(created), "items": created}
 
 
 @router.get("/stats")

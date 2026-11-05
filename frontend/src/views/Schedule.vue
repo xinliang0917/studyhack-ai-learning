@@ -5,10 +5,13 @@
         <h2>学习计划</h2>
         <p>管理课程、作业与考试截止时间，掌握本周学习节奏。</p>
       </div>
-      <el-button type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon>
-        新建任务
-      </el-button>
+      <div style="display: flex; gap: 10px">
+        <el-button @click="openPlanDialog">从大纲生成</el-button>
+        <el-button type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon>
+          新建任务
+        </el-button>
+      </div>
     </div>
 
     <el-row :gutter="16">
@@ -140,6 +143,32 @@
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="planDialog" title="从课程大纲生成学习计划" width="480px">
+      <el-form label-width="90px">
+        <el-form-item label="课程大纲" required>
+          <el-select v-model="planForm.outline_id" placeholder="选择大纲" style="width: 100%">
+            <el-option v-for="o in outlines" :key="o.id" :label="o.title" :value="o.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="周期(天)">
+          <el-input-number v-model="planForm.days" :min="1" :max="60" />
+        </el-form-item>
+        <el-form-item label="开始日期">
+          <el-date-picker
+            v-model="planForm.start_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="默认今天"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="planDialog = false">取消</el-button>
+        <el-button type="primary" :loading="planSaving" @click="savePlan">生成</el-button>
+      </template>
+    </el-dialog>
   </AppLayout>
 </template>
 
@@ -148,6 +177,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '../components/AppLayout.vue'
 import {
+  autoPlan,
   createSchedule,
   deleteSchedule,
   getScheduleStats,
@@ -155,6 +185,7 @@ import {
   toggleSchedule,
   updateSchedule,
 } from '../api/schedule'
+import { getOutlines } from '../api/course'
 
 const TYPE_LABELS = { course: '课程', homework: '作业', exam: '考试', other: '其他' }
 const STATUS_LABELS = { todo: '待完成', doing: '进行中', done: '已完成' }
@@ -178,6 +209,10 @@ const emptyForm = () => ({
   notes: '',
 })
 const form = reactive(emptyForm())
+const planDialog = ref(false)
+const planSaving = ref(false)
+const outlines = ref([])
+const planForm = reactive({ outline_id: null, days: 7, start_date: '' })
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -306,6 +341,37 @@ function priorityTag(priority) {
 
 function statusTag(status) {
   return { todo: 'info', doing: 'warning', done: 'success' }[status] || 'info'
+}
+
+async function openPlanDialog() {
+  planForm.outline_id = null
+  planForm.days = 7
+  planForm.start_date = ''
+  planDialog.value = true
+  try {
+    const res = await getOutlines()
+    outlines.value = res.data || []
+  } catch (e) {
+    ElMessage.error('加载课程大纲失败')
+  }
+}
+
+async function savePlan() {
+  if (!planForm.outline_id) {
+    ElMessage.warning('请选择课程大纲')
+    return
+  }
+  planSaving.value = true
+  try {
+    const res = await autoPlan(planForm.outline_id, planForm.days, planForm.start_date || null)
+    ElMessage.success(`已生成 ${res.data.created} 个任务`)
+    planDialog.value = false
+    await load()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '生成失败')
+  } finally {
+    planSaving.value = false
+  }
 }
 
 onMounted(load)

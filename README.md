@@ -1,6 +1,9 @@
 ﻿# AI 智能学习辅助系统
 
-基于 FastAPI + Vue.js 的智能学习辅助平台，集成知识库管理、课程大纲生成、AI 测验出题、人脸识别登录与语音控制，利用 DeepSeek 大语言模型实现智能化学习体验。
+[![CI](https://github.com/xinliang0917/studyhack-ai-learning/actions/workflows/ci.yml/badge.svg)](https://github.com/xinliang0917/studyhack-ai-learning/actions/workflows/ci.yml)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/xinliang0917/studyhack-ai-learning)
+
+基于 FastAPI + Vue.js 的智能学习辅助平台，集成知识库管理、混合检索 RAG、课程大纲生成、AI 测验出题、错题复习、学习计划、人脸识别登录与语音控制。
 
 > 天池大赛 · StudyHack 学习科研赛道参赛项目
 
@@ -9,20 +12,21 @@
 | 赛题方向 | 本项目能力 |
 |------|------|
 | 课件与知识库 | 多格式课件上传、解析、分块与 faiss 向量索引 |
-| RAG 问答 | 基于知识库分块的向量检索、多轮对话与引用来源标注 |
-| 学习场景 Agent | 自动生成课程大纲、章节内容与分层练习题 |
-| 课表与作业管理 | 学习计划/作业/考试截止管理、章节进度、在线测验、错题本与成绩趋势 |
-| 科研/学习 Copilot | DeepSeek 驱动的讲解、出题与语音指令导航 |
+| RAG 问答 | BM25 + 向量混合检索、RRF 融合、流式回答、引用可跳转原文 |
+| 学习场景 Agent | 自动生成课程大纲、章节内容、分层练习题与错题解析 |
+| 课表与作业管理 | 学习计划/作业/考试截止管理、从大纲自动生成计划、SM-2 复习 |
+| 科研/学习 Copilot | DeepSeek / Ollama 驱动的讲解、出题、原文溯源与语音导航 |
 
 ## 功能概述
 
 | 模块 | 功能 |
 |------|------|
 | 知识库管理 | 上传 PDF/DOCX/PPTX/TXT/MD 文档，自动解析、分块并构建向量索引 |
-| AI 问答 | 基于知识库的 RAG 检索增强问答，支持多轮对话、引用来源与检索距离展示 |
-| 学习计划 | 课程/作业/考试任务管理，支持截止时间、优先级、状态切换与逾期统计 |
+| AI 问答 | BM25 + 向量混合检索、RRF 融合、SSE 流式回答、Markdown/公式渲染、引用跳原文 |
+| 学习计划 | 课程/作业/考试任务管理、截止时间/优先级/逾期统计、从大纲自动生成计划 |
 | 课程大纲 | AI 根据知识库内容自动生成结构化课程大纲与章节内容 |
 | 在线测验 | 基于知识库自动生成选择题/判断题，支持难度筛选、自动评分、错题本 |
+| 错题复习 | 错题记录关联原文分块、SM-2 间隔复习、AI 基于原文生成错题解析 |
 | 人脸登录 | MediaPipe 关键点特征 + OpenCV LBPH 本地人脸识别，支持中文路径 |
 | 语音控制 | 语音指令识别，支持导航到各功能页面 |
 | 考试历史 | 查看历史考试记录、成绩趋势、错题分布统计 |
@@ -32,8 +36,9 @@
 **后端**
 - FastAPI (Python 3.12)
 - SQLAlchemy 2.0 + SQLite / MySQL
-- DeepSeek API (LLM 生成)
-- faiss 向量检索 + sentence-transformers
+- DeepSeek / Ollama（OpenAI 兼容，可切换本地模型）
+- BGE 中文 embedding + faiss 向量检索（可关闭）
+- BM25 + RRF 混合检索，可选 CrossEncoder 重排
 - OpenCV + MediaPipe (人脸识别)
 - bcrypt + JWT (用户认证)
 
@@ -76,9 +81,11 @@
 │   │   │   └── face_service.py   # 人脸特征提取与比对
 │   │   └── utils/
 │   │       └── auth.py           # JWT 令牌验证依赖
-│   ├── tests/                    # 测试用例 (58 单元测试 + 31 系统测试)
+│   ├── tests/                    # 自动化测试
 │   ├── face_landmarker.task      # MediaPipe 人脸关键点模型
-│   └── requirements.txt
+│   ├── requirements.txt          # 完整依赖（含向量模型）
+│   ├── requirements-deploy.txt   # 部署精简依赖（BM25 模式）
+│   └── requirements-test.txt     # CI 测试依赖
 ├── frontend/
 │   ├── src/
 │   │   ├── views/                # 页面组件
@@ -88,6 +95,10 @@
 │   │   ├── store/                # Pinia 状态管理
 │   │   └── composables/          # 组合式函数
 │   └── package.json
+├── .github/workflows/ci.yml      # 后端测试 + 前端构建
+├── Dockerfile                    # 前后端一体镜像
+├── render.yaml                   # Render 一键部署
+├── .dockerignore
 ├── .gitignore
 ├── .env.example
 ├── start-dev.ps1                 # 一键启动前后端（Windows）
@@ -131,8 +142,16 @@ copy ..\.env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | 中文资料建议改为 `paraphrase-multilingual-MiniLM-L12-v2` |
+| `EMBEDDING_ENABLED` | `true` | 设为 `false` 跳过向量模型，仅用 BM25（低配/免费部署） |
+| `EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 中文资料推荐；也可用多语言模型 |
+| `RETRIEVAL_MODE` | `hybrid` | `hybrid` / `vector` / `bm25` |
+| `RERANK_ENABLED` | `false` | 开启 CrossEncoder 重排，首次加载较慢 |
 | `RAG_MAX_DISTANCE` | `1.6` | 过滤过远检索片段；设为 `0` 关闭绝对距离阈值 |
+| `LLM_PROVIDER` | `deepseek` | 设为 `ollama` 使用本地模型 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI 兼容地址 |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Ollama 模型名 |
+| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:8000` | 逗号分隔 |
+| `MAX_UPLOAD_MB` | `50` | 上传大小限制 |
 | `FACE_IMAGES_DIR` | `backend/face_images` | 人脸样本目录，已支持中文路径 |
 
 ### 3. 启动后端
@@ -172,7 +191,8 @@ npm run dev        # 或启动开发服务器
 | `/api/knowledge/documents` | GET | 文档列表 |
 | `/api/knowledge/documents/{id}` | DELETE | 删除文档 |
 | `/api/knowledge/documents/{id}/content` | GET | 文档内容 |
-| `/api/knowledge/search` | GET | 知识库搜索 |
+| `/api/knowledge/documents/{id}/chunks/{chunk_index}` | GET | 读取指定分块（引用溯源） |
+| `/api/knowledge/search` | GET | 知识库混合检索 |
 | `/api/knowledge/refresh` | POST | 刷新索引 |
 | `/api/course/outline/generate` | POST | 生成大纲 |
 | `/api/course/outline` | GET | 大纲列表 |
@@ -186,10 +206,15 @@ npm run dev        # 或启动开发服务器
 | `/api/quiz/history` | GET | 考试历史 |
 | `/api/quiz/progress/stats` | GET | 学习统计 |
 | `/api/quiz/wrong-questions` | GET | 错题本 |
+| `/api/quiz/wrong-questions/review` | GET | 到期复习队列（SM-2） |
+| `/api/quiz/wrong-questions/{id}/review` | POST | 提交复习评价并更新下次复习时间 |
+| `/api/quiz/wrong-questions/{id}/explain` | POST | 基于知识库生成错题解析 |
 | `/api/rag/chat` | POST | 知识库 RAG 问答（多轮对话 + 引用来源） |
+| `/api/rag/chat/stream` | POST | RAG 流式问答（SSE） |
 | `/api/schedule/items` | GET/POST | 学习计划列表/新建任务 |
 | `/api/schedule/items/{id}` | PUT/DELETE | 编辑/删除任务 |
 | `/api/schedule/items/{id}/toggle` | PATCH | 切换完成状态 |
+| `/api/schedule/auto-plan` | POST | 从课程大纲自动生成学习计划 |
 | `/api/schedule/stats` | GET | 任务统计与近 7 天待办 |
 | `/api/voice/interpret` | POST | 语音指令解析 |
 
@@ -206,23 +231,39 @@ pytest tests/ -v
 
 ## 部署
 
-### 生产部署 (Linux)
+### Render 一键部署（推荐）
 
-```bash
-# 安装依赖
-pip install -r requirements.txt
+仓库包含 `render.yaml` 和 `Dockerfile`：
 
-# 使用 systemd 或 supervisor 管理进程
-# 启动命令
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+1. 在 Render 新建 Blueprint，选择本仓库；
+2. 按提示填写 `DEEPSEEK_API_KEY`；
+3. 部署完成后访问 `https://<service>.onrender.com`。
 
-# 前端构建后由 FastAPI 自动挂载
-cd frontend && npm install && npm run build
-```
+免费实例默认使用 `BM25 + SQLite`（`EMBEDDING_ENABLED=false`），不加载向量模型，内存占用低。注意免费实例重启后本地 SQLite 数据会重置，演示前重新上传资料即可。
 
 ### Docker 部署
 
-待补充
+```bash
+docker build -t studyhack-ai-learning .
+docker run -p 8000:8000 \
+  -e DEEPSEEK_API_KEY=your-key \
+  -e JWT_SECRET=change-me \
+  -e EMBEDDING_ENABLED=false \
+  -e RETRIEVAL_MODE=bm25 \
+  studyhack-ai-learning
+```
+
+浏览器打开 http://localhost:8000。生产环境建议挂载 `/app/backend/uploads`、`/app/backend/vector_index` 和 SQLite 文件。
+
+### 传统 Linux 部署
+
+```bash
+cd backend
+pip install -r requirements.txt
+cd ../frontend && npm install && npm run build
+cd ../backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
 
 ## 许可证
 

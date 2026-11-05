@@ -24,3 +24,12 @@ export const getWrongStats = () => api.get('/quiz/wrong-questions/stats')
 
 
 export const getExamQuestions = (examId) => api.get('/quiz/' + examId + '/questions')
+
+export const getReviewQueue = (limit = 20) =>
+  api.get('/quiz/wrong-questions/review', { params: { limit } })
+
+export const reviewWrongQuestion = (questionId, quality) =>
+  api.post(`/quiz/wrong-questions/${questionId}/review`, { quality })
+
+export const explainWrongQuestion = (questionId) =>
+  api.post(`/quiz/wrong-questions/${questionId}/explain`)

@@ -15,3 +15,6 @@ export const refreshIndex = () => api.post('/knowledge/refresh')
 export const searchKnowledge = (query, k = 5) =>
   api.get('/knowledge/search', { params: { query, k } })
 export const getDocumentContent = (id) => api.get(`/knowledge/documents/${id}/content`)
+
+export const getDocumentChunk = (id, chunkIndex) =>
+  api.get(`/knowledge/documents/${id}/chunks/${chunkIndex}`)

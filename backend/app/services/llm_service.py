@@ -10,15 +10,27 @@ class LLMService:
     @classmethod
     def _get_client(cls) -> OpenAI:
         if cls._client is None:
-            cls._client = OpenAI(
-                api_key=settings.deepseek_api_key,
-                base_url=settings.deepseek_base_url,
-            )
+            if settings.llm_provider == "ollama":
+                cls._client = OpenAI(
+                    api_key=settings.ollama_api_key,
+                    base_url=settings.ollama_base_url,
+                )
+            else:
+                cls._client = OpenAI(
+                    api_key=settings.deepseek_api_key,
+                    base_url=settings.deepseek_base_url,
+                )
         return cls._client
+
+    @staticmethod
+    def _default_model() -> str:
+        if settings.llm_provider == "ollama":
+            return settings.ollama_model
+        return settings.deepseek_model
 
     @classmethod
     def chat(cls, messages: list, model: Optional[str] = None, temperature: float = 0.7) -> str:
-        model = model or settings.deepseek_model
+        model = model or cls._default_model()
         try:
             client = cls._get_client()
             response = client.chat.completions.create(
@@ -29,6 +41,29 @@ class LLMService:
             return response.choices[0].message.content or ""
         except Exception as e:
             return f"[LLM Error: {str(e)}]"
+
+    @classmethod
+    def stream_chat(cls, messages: list, model: Optional[str] = None, temperature: float = 0.7):
+        """Yield response chunks for SSE streaming."""
+        model = model or cls._default_model()
+        try:
+            client = cls._get_client()
+            stream = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                choices = getattr(chunk, "choices", None)
+                if not choices:
+                    continue
+                delta = choices[0].delta
+                content = getattr(delta, "content", None) if delta else None
+                if content:
+                    yield content
+        except Exception as e:
+            yield f"[LLM Error: {str(e)}]"
 
     @staticmethod
     def generate_outline(knowledge_text: str, title: str = "课程大纲") -> dict:

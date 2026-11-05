@@ -1,0 +1,16 @@
+.git
+.github
+.gitignore
+README.md
+frontend/node_modules
+frontend/dist
+backend/venv
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/uploads
+backend/vector_index
+backend/face_images
+backend/*.db
+backend/.env
+**/*.log

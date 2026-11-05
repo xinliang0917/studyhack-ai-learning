@@ -2,16 +2,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from app.config import settings
 from app.database import init_db
 from app.routers import auth, knowledge, course, quiz, voice, rag, schedule
 
 app = FastAPI(title="AI Learning Assistant", version="1.0.0")
 
-# CORS
+origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=origins,
+    allow_credentials="*" not in origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -33,7 +34,9 @@ def on_startup():
 def health():
     return {"status": "ok", "message": "AI Learning Assistant API is running"}
 
-# Serve frontend static files
-frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+# Serve frontend static files from repository root/frontend/dist
+frontend_dist = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist"
+)
 if os.path.exists(frontend_dist):
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")

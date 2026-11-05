@@ -1,7 +1,14 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel
+
+
+class AutoPlanRequest(BaseModel):
+    outline_id: int
+    days: int = 7
+    start_date: Optional[date] = None
+    item_type: str = "course"
 
 
 class ScheduleCreate(BaseModel):

@@ -2,6 +2,7 @@ import os as _os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from typing import List
+from app.config import settings
 from app.database import get_db
 from app.models.knowledge import KnowledgeDoc, KnowledgeChunk
 from app.schemas.knowledge import KnowledgeDocResponse, UploadResponse
@@ -40,12 +41,21 @@ async def upload_document(
     if ext not in SUPPORTED_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     content = await file.read()
-    file_path = DocumentParser.save_upload(content, file.filename)
-    texts = DocumentParser.parse(file_path, ext)
-    chunks = vector_store.get_chunks(texts)
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件超过 {settings.max_upload_mb}MB 限制",
+        )
+    file_path = DocumentParser.save_upload(content, file.filename, user_id)
+    try:
+        texts = DocumentParser.parse(file_path, ext)
+    except Exception as exc:
+        DocumentParser.delete_file(file_path)
+        raise HTTPException(status_code=400, detail=f"文档解析失败：{exc}") from exc
+    chunks = vector_store.get_chunks_smart(texts)
     doc = KnowledgeDoc(
         user_id=user_id, filename=file.filename, file_type=ext,
-        file_size=len(content), chunk_count=len(chunks),
+        file_size=len(content), chunk_count=len(chunks), file_path=file_path,
     )
     db.add(doc)
     db.flush()
@@ -78,9 +88,11 @@ def delete_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     deleted_ids = [c.id for c in db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc_id).all()]
+    stored_path = doc.file_path
     db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc_id).delete()
     db.delete(doc)
     db.commit()
+    DocumentParser.delete_file(stored_path)
     if deleted_ids:
         try:
             vector_store.mark_deleted(deleted_ids)
@@ -128,3 +140,29 @@ def get_document_content(
     chunks = db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc_id).order_by(KnowledgeChunk.chunk_index).all()
     content = "\n\n".join(c.content for c in chunks)
     return {"id": doc.id, "filename": doc.filename, "content": content, "file_type": doc.file_type, "file_size": doc.file_size, "chunk_count": len(chunks)}
+
+
+@router.get("/documents/{doc_id}/chunks/{chunk_index}")
+def get_document_chunk(
+    doc_id: int,
+    chunk_index: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    doc = db.query(KnowledgeDoc).filter(
+        KnowledgeDoc.id == doc_id, KnowledgeDoc.user_id == user_id
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    chunk = db.query(KnowledgeChunk).filter(
+        KnowledgeChunk.doc_id == doc_id,
+        KnowledgeChunk.chunk_index == chunk_index,
+    ).first()
+    if not chunk:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+    return {
+        "doc_id": doc_id,
+        "filename": doc.filename,
+        "chunk_index": chunk_index,
+        "content": chunk.content,
+    }

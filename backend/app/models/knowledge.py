@@ -9,6 +9,7 @@ class KnowledgeDoc(Base):
     file_type = Column(String(20), nullable=False)
     file_size = Column(BigInteger, default=0)
     chunk_count = Column(Integer, default=0)
+    file_path = Column(String(500), nullable=True)
     upload_time = Column(DateTime, server_default=func.now())
 
 class KnowledgeChunk(Base):

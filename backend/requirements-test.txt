@@ -1,0 +1,14 @@
+fastapi>=0.100.0
+sqlalchemy>=2.0
+openai>=1.0
+numpy>=1.24
+bcrypt>=4.0
+python-jose[cryptography]
+python-dotenv>=1.0
+pydantic>=2.0
+python-multipart
+httpx
+Pillow>=10
+opencv-contrib-python-headless>=4.8
+pytest
+pytest-asyncio

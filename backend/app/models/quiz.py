@@ -12,6 +12,7 @@ class QuizQuestion(Base):
     explanation = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     exam_id = Column(Integer, nullable=True, index=True, default=None)
+    source_chunks = Column(JSON, nullable=True)
 
 class ExamResult(Base):
     __tablename__ = "exam_results"
@@ -33,3 +34,8 @@ class WrongQuestion(Base):
     user_answer = Column(String(10), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     reviewed = Column(Integer, default=0)
+    ease_factor = Column(Float, default=2.5)
+    interval_days = Column(Integer, default=0)
+    repetitions = Column(Integer, default=0)
+    next_review_at = Column(DateTime, nullable=True, index=True)
+    last_reviewed_at = Column(DateTime, nullable=True)

@@ -43,3 +43,28 @@ def init_db():
             conn.commit()
     except Exception:
         pass  # Column already exists
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE knowledge_docs ADD COLUMN file_path VARCHAR(500)"))
+            conn.commit()
+    except Exception:
+        pass  # Column already exists
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE quiz_questions ADD COLUMN source_chunks JSON"))
+            conn.commit()
+    except Exception:
+        pass  # Column already exists
+    for _column, ddl in (
+        ("ease_factor", "ALTER TABLE wrong_questions ADD COLUMN ease_factor FLOAT DEFAULT 2.5"),
+        ("interval_days", "ALTER TABLE wrong_questions ADD COLUMN interval_days INTEGER DEFAULT 0"),
+        ("repetitions", "ALTER TABLE wrong_questions ADD COLUMN repetitions INTEGER DEFAULT 0"),
+        ("next_review_at", "ALTER TABLE wrong_questions ADD COLUMN next_review_at DATETIME"),
+        ("last_reviewed_at", "ALTER TABLE wrong_questions ADD COLUMN last_reviewed_at DATETIME"),
+    ):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(ddl))
+                conn.commit()
+        except Exception:
+            pass  # Column already exists
