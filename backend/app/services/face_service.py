@@ -17,13 +17,33 @@ class FaceService:
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
         self._try_load_model()
-        # cv2.imwrite/imread cannot handle Chinese paths
-        self.face_images_dir = r"D:\face_images"
-        os.makedirs(self.face_images_dir, exist_ok=True)
+        default_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "face_images",
+        )
+        self.face_images_dir = os.getenv("FACE_IMAGES_DIR", default_dir)
         os.makedirs(self.face_images_dir, exist_ok=True)
         self.recognizer = None
         self.recognizer_trained = False
         self._load_recognizer()
+
+    @staticmethod
+    def _imwrite(path, image) -> bool:
+        ext = os.path.splitext(path)[1] or ".jpg"
+        ok, buf = cv2.imencode(ext, image)
+        if not ok:
+            return False
+        buf.tofile(path)
+        return True
+
+    @staticmethod
+    def _imread(path, flags=cv2.IMREAD_COLOR):
+        if not os.path.exists(path):
+            return None
+        arr = np.fromfile(path, dtype=np.uint8)
+        if arr.size == 0:
+            return None
+        return cv2.imdecode(arr, flags)
 
     def _try_load_model(self):
         try:
@@ -177,13 +197,13 @@ class FaceService:
             count = len(existing)
             save_dir = self.face_images_dir
             # Save original
-            cv2.imwrite(os.path.join(save_dir, f"user_{user_id}_{count:03d}.jpg"), roi)
-            # Augment: flip, slight rotate, adjust brightness to get >1 sample for LBPH training
-            cv2.imwrite(os.path.join(save_dir, f"user_{user_id}_{count+1:03d}.jpg"), cv2.flip(roi, 1))
+            self._imwrite(os.path.join(save_dir, f"user_{user_id}_{count:03d}.jpg"), roi)
+            # Augment: flip and brightness variants to give LBPH more samples
+            self._imwrite(os.path.join(save_dir, f"user_{user_id}_{count+1:03d}.jpg"), cv2.flip(roi, 1))
             small = cv2.resize(roi, (180, 180))
-            cv2.imwrite(os.path.join(save_dir, f"user_{user_id}_{count+2:03d}.jpg"), cv2.resize(small, (200, 200)))
+            self._imwrite(os.path.join(save_dir, f"user_{user_id}_{count+2:03d}.jpg"), cv2.resize(small, (200, 200)))
             bright = cv2.convertScaleAbs(roi, alpha=1.2, beta=10)
-            cv2.imwrite(os.path.join(save_dir, f"user_{user_id}_{count+3:03d}.jpg"), bright)
+            self._imwrite(os.path.join(save_dir, f"user_{user_id}_{count+3:03d}.jpg"), bright)
             self._train_recognizer()
             return True
         except Exception as e:
@@ -202,7 +222,7 @@ class FaceService:
                 uid = int(parts[1])
             except ValueError:
                 continue
-            img = cv2.imread(os.path.join(self.face_images_dir, fname), cv2.IMREAD_GRAYSCALE)
+            img = self._imread(os.path.join(self.face_images_dir, fname), cv2.IMREAD_GRAYSCALE)
             if img is None:
                 continue
             faces.append(img)

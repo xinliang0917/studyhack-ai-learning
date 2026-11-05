@@ -22,7 +22,7 @@
     <el-card shadow="hover">
       <template #header><span>关于</span></template>
       <p>AI 学习助手 v1.0</p>
-      <p style="color: #909399; font-size: 13px; margin-top: 4px">基于 LangChain + Vue3 + FastAPI 构建</p>
+      <p style="color: #909399; font-size: 13px; margin-top: 4px">基于 DeepSeek + RAG + FastAPI + Vue3 构建</p>
     </el-card>
 
     <el-dialog v-model="showFaceDialog" title="人脸识别管理" width="400px">

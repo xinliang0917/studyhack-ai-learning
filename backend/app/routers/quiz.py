@@ -1,4 +1,4 @@
-﻿import json, time
+import json, time
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc, distinct
@@ -37,7 +37,7 @@ def generate_by_course(
     if not chapters:
         raise HTTPException(status_code=400, detail="没有找到该课程的章节，请先生成大纲")
 
-    knowledge_text = vector_store.get_all_text()
+    knowledge_text = vector_store.get_all_text(user_id=user_id)
     if not knowledge_text:
         raise HTTPException(status_code=400, detail="知识库内容为空，请先上传文档")
 
@@ -52,7 +52,7 @@ def generate_by_course(
     max_per = max(counts_per_chapter)
 
     start_time = time.time()
-    raw_questions = QuizEngine.generate_bulk_quiz(chapter_titles, max_per, data.difficulty)
+    raw_questions = QuizEngine.generate_bulk_quiz(chapter_titles, max_per, data.difficulty, user_id=user_id)
     if not raw_questions:
         raise HTTPException(status_code=500, detail="题目生成失败，请稍后重试")
 
@@ -140,7 +140,7 @@ def generate_quiz(
     chapters = db.query(Chapter).filter(Chapter.id.in_(data.chapter_ids)).order_by(Chapter.sort_order).all()
     if not chapters:
         raise HTTPException(status_code=400, detail="未找到章节，请先生成课程大纲")
-    knowledge_text = vector_store.get_all_text()
+    knowledge_text = vector_store.get_all_text(user_id=user_id)
     if not knowledge_text:
         raise HTTPException(status_code=400, detail="知识库为空，请先上传文档")
 
@@ -151,7 +151,7 @@ def generate_quiz(
     counts_per_chapter = [per_chapter + (1 if i < remainder else 0) for i in range(len(chapters))]
     max_per = max(counts_per_chapter)
 
-    raw_questions = QuizEngine.generate_bulk_quiz(chapter_titles, max_per, data.difficulty)
+    raw_questions = QuizEngine.generate_bulk_quiz(chapter_titles, max_per, data.difficulty, user_id=user_id)
     if not raw_questions:
         raise HTTPException(status_code=500, detail="题目生成失败，请稍后重试")
 

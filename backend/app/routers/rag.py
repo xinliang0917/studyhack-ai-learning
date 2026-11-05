@@ -3,6 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.config import settings
 from app.services.llm_service import LLMService
 from app.services.vector_store import vector_store
 from app.utils.auth import get_current_user
@@ -49,17 +50,31 @@ def _build_context(sources: List[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _filter_sources(sources: List[dict], limit: int) -> List[dict]:
+    """Keep the best match and drop clearly weaker / too-distant chunks."""
+    if not sources:
+        return []
+    best = sources[0]["score"]
+    cutoff = best + 0.35
+    if settings.rag_max_distance > 0:
+        cutoff = min(cutoff, settings.rag_max_distance)
+    filtered = [s for s in sources if s["score"] <= cutoff]
+    return (filtered or sources[:1])[:limit]
+
+
 @router.post("/chat", response_model=RagChatResponse)
 def rag_chat(data: RagChatRequest, user_id: int = Depends(get_current_user)):
     question = data.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
 
+    limit = max(1, min(data.k, 10))
     try:
-        sources = vector_store.search(question, max(1, min(data.k, 10)))
+        sources = vector_store.search(question, limit, user_id=user_id)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"知识库检索不可用：{exc}") from exc
 
+    sources = _filter_sources(sources, limit)
     if not sources:
         return RagChatResponse(
             answer="知识库中暂未检索到相关内容。请先在「知识库」页面上传课程资料，并点击「刷新索引」后重试。",

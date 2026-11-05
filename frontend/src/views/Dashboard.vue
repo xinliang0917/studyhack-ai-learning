@@ -46,6 +46,25 @@
       </div>
       <el-empty v-else description="暂无学习进度，请先上传知识库并生成课程大纲" />
     </el-card>
+
+    <el-card style="margin-top: 20px" shadow="hover">
+      <template #header>
+        <span>近 7 天待办</span>
+        <el-button size="small" style="float: right" @click="router.push('/schedule')">学习计划</el-button>
+      </template>
+      <div v-if="upcomingTasks.length">
+        <div v-for="task in upcomingTasks" :key="task.id" class="task-row">
+          <div class="task-main">
+            <span :class="['dot', task.priority]"></span>
+            <span class="task-name">{{ task.title }}</span>
+            <el-tag size="small" effect="plain" style="margin-left: 8px">{{ TYPE_LABELS[task.item_type] || task.item_type }}</el-tag>
+            <span v-if="task.course" class="task-course">{{ task.course }}</span>
+          </div>
+          <span class="task-due">{{ formatDue(task.due_at) }}</span>
+        </div>
+      </div>
+      <el-empty v-else description="近 7 天没有待办任务" :image-size="60" />
+    </el-card>
   </AppLayout>
 </template>
 
@@ -56,11 +75,15 @@ import { ElMessage } from 'element-plus'
 import AppLayout from '../components/AppLayout.vue'
 import { getProgress, updateProgress } from '../api/course'
 import { getLearningStats } from '../api/quiz'
+import { getScheduleStats } from '../api/schedule'
+
+const TYPE_LABELS = { course: '课程', homework: '作业', exam: '考试', other: '其他' }
 
 const router = useRouter()
 const stats = ref({})
 const progressList = ref([])
 const activeCourse = ref("")
+const upcomingTasks = ref([])
 
 const progressByCourse = computed(() => {
   const map = {}
@@ -89,7 +112,18 @@ onMounted(async () => {
     stats.value = s.data
     progressList.value = p.data
   } catch (e) { /* ignore */ }
+  try {
+    const sch = await getScheduleStats()
+    upcomingTasks.value = sch.data.upcoming || []
+  } catch (e) { /* ignore */ }
 })
+
+function formatDue(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
 
 async function markComplete(chapterId) {
   try {
@@ -102,3 +136,50 @@ async function markComplete(chapterId) {
   } catch (e) { ElMessage.error('操作失败') }
 }
 </script>
+
+<style scoped>
+.task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.task-row:last-child {
+  border-bottom: none;
+}
+.task-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex-shrink: 0;
+  background: #909399;
+}
+.dot.high { background: #f56c6c; }
+.dot.normal { background: #409eff; }
+.dot.low { background: #c0c4cc; }
+.task-name {
+  color: #303133;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-course {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+.task-due {
+  color: #e6a23c;
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+</style>

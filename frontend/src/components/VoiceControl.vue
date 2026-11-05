@@ -44,6 +44,10 @@ const commandMap = {
   'AI问答': '/rag',
   '智能问答': '/rag',
   '打开问答': '/rag',
+  '学习计划': '/schedule',
+  '课表': '/schedule',
+  '作业': '/schedule',
+  '任务': '/schedule',
   '课程大纲': '/course',
   '打开课程': '/course',
   '开始测验': '/quiz',
@@ -209,6 +213,10 @@ function readCurrentPage() {
   }
   if (path === '/rag') {
     speak('知识库智能问答页面')
+    return
+  }
+  if (path === '/schedule') {
+    speak('学习计划页面')
     return
   }
   // Generic fallback - try to read page title

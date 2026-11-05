@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.database import init_db
-from app.routers import auth, knowledge, course, quiz, voice, rag
+from app.routers import auth, knowledge, course, quiz, voice, rag, schedule
 
 app = FastAPI(title="AI Learning Assistant", version="1.0.0")
 
@@ -23,6 +23,7 @@ app.include_router(course.router)
 app.include_router(quiz.router)
 app.include_router(voice.router)
 app.include_router(rag.router)
+app.include_router(schedule.router)
 
 @app.on_event("startup")
 def on_startup():

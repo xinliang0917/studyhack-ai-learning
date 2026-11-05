@@ -64,7 +64,7 @@ def _cleanup():
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(fastapi_app)
 
 
 @pytest.fixture
@@ -249,8 +249,10 @@ class TestFaceSystem:
         assert resp.status_code == 401
 
     def test_tc_fl_04_face_login_no_image(self, client):
+        client.post("/api/auth/register/password",
+                     json={"username": "facenoface", "password": "pass123"})
         resp = client.post("/api/auth/login/face",
-                            json={"username": "test", "image_base64": ""})
+                            json={"username": "facenoface", "image_base64": ""})
         assert resp.status_code in (400, 422)
 
     def test_tc_fl_05_delete_exam(self, client, auth_header):

@@ -5,6 +5,8 @@ os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 import pickle
 import numpy as np
 
+from app.config import settings
+
 _DEFAULT_VECTOR_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vector_index"
 )
@@ -13,9 +15,10 @@ os.makedirs(VECTOR_DIR, exist_ok=True)
 
 class VectorStore:
     def __init__(self):
+        self.model_name = settings.embedding_model
         try:
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer("all-MiniLM-L6-v2")
+            self.model = SentenceTransformer(self.model_name)
             self.model.encode(["warm up"], show_progress_bar=False)
         except Exception as e:
             print("Model load failed:", e)
@@ -62,39 +65,52 @@ class VectorStore:
         with open(self.meta_path, "wb") as f:
             pickle.dump(meta, f)
 
-    def search(self, query, k=5):
-        if not os.path.exists(self.index_path):
+    def search(self, query, k=5, user_id=None):
+        if not os.path.exists(self.index_path) or self.model is None:
             return []
         import faiss
         index = faiss.read_index(self.index_path)
         with open(self.meta_path, "rb") as f:
             meta = pickle.load(f)
-        lookup_k = min(k + len(meta.get("deleted", set())), len(meta["chunks"]))
+        deleted = meta.get("deleted", set())
+        lookup_k = min(max(k * 5, k + len(deleted)), len(meta["chunks"]))
+        if lookup_k <= 0:
+            return []
         query_vec = self.model.encode([query])
         distances, indices = index.search(query_vec.astype(np.float32), lookup_k)
         results = []
-        deleted = meta.get("deleted", set())
         for i, idx in enumerate(indices[0]):
-            if idx < len(meta["chunks"]) and idx not in deleted:
-                chunk = meta["chunks"][idx]
-                item = {
-                    "content": chunk["content"],
-                    "score": float(distances[0][i]),
-                }
-                for key in ("doc_id", "filename", "chunk_index"):
-                    if key in chunk:
-                        item[key] = chunk[key]
-                results.append(item)
-                if len(results) >= k:
-                    break
+            if idx < 0 or idx >= len(meta["chunks"]) or idx in deleted:
+                continue
+            chunk = meta["chunks"][idx]
+            if user_id is not None and chunk.get("user_id") != user_id:
+                continue
+            item = {
+                "content": chunk["content"],
+                "score": float(distances[0][i]),
+            }
+            for key in ("doc_id", "filename", "chunk_index"):
+                if key in chunk:
+                    item[key] = chunk[key]
+            results.append(item)
+            if len(results) >= k:
+                break
         return results
 
-    def get_all_text(self):
+    def get_all_text(self, user_id=None):
         if not os.path.exists(self.meta_path):
             return ""
         with open(self.meta_path, "rb") as f:
             meta = pickle.load(f)
-        return "\n".join(c["content"] for c in meta["chunks"] if c.get("index") not in meta.get("deleted", set()))
+        deleted = meta.get("deleted", set())
+        texts = []
+        for i, chunk in enumerate(meta["chunks"]):
+            if i in deleted:
+                continue
+            if user_id is not None and chunk.get("user_id") != user_id:
+                continue
+            texts.append(chunk["content"])
+        return "\n".join(texts)
 
     def clear(self):
         if os.path.exists(self.index_path):

@@ -15,7 +15,7 @@ SUPPORTED_TYPES = {"pdf", "docx", "txt", "md", "markdown", "pptx"}
 
 
 def _collect_chunks(db: Session) -> list:
-    rows = db.query(KnowledgeChunk, KnowledgeDoc.filename).join(
+    rows = db.query(KnowledgeChunk, KnowledgeDoc.filename, KnowledgeDoc.user_id).join(
         KnowledgeDoc, KnowledgeChunk.doc_id == KnowledgeDoc.id
     ).all()
     return [
@@ -25,8 +25,9 @@ def _collect_chunks(db: Session) -> list:
             "doc_id": chunk.doc_id,
             "chunk_index": chunk.chunk_index,
             "filename": filename,
+            "user_id": owner_id,
         }
-        for chunk, filename in rows
+        for chunk, filename, owner_id in rows
     ]
 
 @router.post("/upload", response_model=UploadResponse)
@@ -93,7 +94,7 @@ def delete_document(
     return {"message": "Document deleted"}
 
 @router.post("/refresh")
-def refresh_index(db: Session = Depends(get_db)):
+def refresh_index(db: Session = Depends(get_db), user_id: int = Depends(get_current_user)):
     chunks = _collect_chunks(db)
     if chunks:
         try:
@@ -108,9 +109,12 @@ def refresh_index(db: Session = Depends(get_db)):
     return {"message": "Index refreshed"}
 
 @router.get("/search")
-def search_knowledge(query: str = Query(...), k: int = 5):
-    results = vector_store.search(query, k)
-    return results
+def search_knowledge(
+    query: str = Query(...),
+    k: int = 5,
+    user_id: int = Depends(get_current_user),
+):
+    return vector_store.search(query, k, user_id=user_id)
 
 @router.get("/documents/{doc_id}/content")
 def get_document_content(

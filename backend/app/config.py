@@ -24,6 +24,8 @@ class Settings:
         self.jwt_expiration_hours = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
         self.server_host = os.getenv("SERVER_HOST", "0.0.0.0")
         self.server_port = int(os.getenv("SERVER_PORT", "8000"))
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        self.rag_max_distance = float(os.getenv("RAG_MAX_DISTANCE", "1.6"))
 
     @property
     def database_url(self) -> str:

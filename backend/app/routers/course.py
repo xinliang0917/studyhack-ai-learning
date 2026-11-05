@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.models.course import CourseOutline, Chapter, LearningProgress
-from app.models.knowledge import KnowledgeChunk
+from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.schemas.course import OutlineGenerateRequest, OutlineResponse, ChapterResponse, ProgressUpdate, ProgressResponse
 from app.services.llm_service import LLMService
 from app.services.vector_store import vector_store
@@ -20,10 +20,18 @@ def generate_outline(
     user_id: int = Depends(get_current_user),
 ):
     if data.file_ids:
-        chunks = db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id.in_(data.file_ids)).all()
+        chunks = (
+            db.query(KnowledgeChunk)
+            .join(KnowledgeDoc, KnowledgeChunk.doc_id == KnowledgeDoc.id)
+            .filter(
+                KnowledgeChunk.doc_id.in_(data.file_ids),
+                KnowledgeDoc.user_id == user_id,
+            )
+            .all()
+        )
         knowledge_text = "\n".join(c.content for c in chunks)
     else:
-        knowledge_text = vector_store.get_all_text()
+        knowledge_text = vector_store.get_all_text(user_id=user_id)
     if not knowledge_text:
         raise HTTPException(status_code=400, detail="No knowledge base content. Upload documents first.")
     result = LLMService.generate_outline(knowledge_text, data.title)
@@ -110,7 +118,7 @@ def generate_chapter_content(
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
-    knowledge_text = vector_store.get_all_text()
+    knowledge_text = vector_store.get_all_text(user_id=user_id)
     outline_record = db.query(CourseOutline).filter(CourseOutline.id == chapter.outline_id).first()
     outline_str = json.dumps(outline_record.outline_json, ensure_ascii=False) if outline_record else ""
     content = LLMService.generate_chapter_content(knowledge_text, chapter.title, outline_str)

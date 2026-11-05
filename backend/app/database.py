@@ -28,7 +28,7 @@ def get_db():
         db.close()
 
 def init_db():
-    from app.models import user, knowledge, course, quiz, face  # noqa
+    from app.models import user, knowledge, course, quiz, face, schedule  # noqa
     Base.metadata.create_all(bind=engine)
     # Migrate existing tables for new columns
     try:

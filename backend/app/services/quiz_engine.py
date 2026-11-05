@@ -5,18 +5,26 @@ from app.services.vector_store import vector_store
 
 class QuizEngine:
     @staticmethod
-    def generate_quiz(chapter_title: str, count: int = 5, difficulty: str = "medium") -> List[Dict]:
+    def generate_quiz(chapter_title: str, count: int = 5, difficulty: str = "medium", user_id: int = None) -> List[Dict]:
         """Generate questions for a single chapter (legacy)."""
-        knowledge_text = vector_store.get_all_text()
+        knowledge_text = (
+            vector_store.get_all_text()
+            if user_id is None
+            else vector_store.get_all_text(user_id=user_id)
+        )
         questions = LLMService.generate_quiz(knowledge_text, chapter_title, count, difficulty)
         return questions
 
     @staticmethod
-    def generate_bulk_quiz(chapter_titles: List[str], count_per_chapter: int = 3, difficulty: str = "medium") -> List[Dict]:
+    def generate_bulk_quiz(chapter_titles: List[str], count_per_chapter: int = 3, difficulty: str = "medium", user_id: int = None) -> List[Dict]:
         """Generate questions for ALL chapters in a single LLM call.
         Returns list of {chapter_index, question, type, options, answer, explanation, difficulty}.
         """
-        knowledge_text = vector_store.get_all_text()
+        knowledge_text = (
+            vector_store.get_all_text()
+            if user_id is None
+            else vector_store.get_all_text(user_id=user_id)
+        )
         if not knowledge_text:
             return []
         questions = LLMService.generate_bulk_quiz(

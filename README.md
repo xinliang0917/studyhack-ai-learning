@@ -11,7 +11,7 @@
 | 课件与知识库 | 多格式课件上传、解析、分块与 faiss 向量索引 |
 | RAG 问答 | 基于知识库分块的向量检索、多轮对话与引用来源标注 |
 | 学习场景 Agent | 自动生成课程大纲、章节内容与分层练习题 |
-| 课表与作业管理 | 章节学习进度、在线测验、错题本与成绩趋势 |
+| 课表与作业管理 | 学习计划/作业/考试截止管理、章节进度、在线测验、错题本与成绩趋势 |
 | 科研/学习 Copilot | DeepSeek 驱动的讲解、出题与语音指令导航 |
 
 ## 功能概述
@@ -20,9 +20,10 @@
 |------|------|
 | 知识库管理 | 上传 PDF/DOCX/PPTX/TXT/MD 文档，自动解析、分块并构建向量索引 |
 | AI 问答 | 基于知识库的 RAG 检索增强问答，支持多轮对话、引用来源与检索距离展示 |
+| 学习计划 | 课程/作业/考试任务管理，支持截止时间、优先级、状态切换与逾期统计 |
 | 课程大纲 | AI 根据知识库内容自动生成结构化课程大纲与章节内容 |
 | 在线测验 | 基于知识库自动生成选择题/判断题，支持难度筛选、自动评分、错题本 |
-| 人脸登录 | 基于 OpenCV + MediaPipe 的人脸特征提取与识别登录 |
+| 人脸登录 | MediaPipe 关键点特征 + OpenCV LBPH 本地人脸识别，支持中文路径 |
 | 语音控制 | 语音指令识别，支持导航到各功能页面 |
 | 考试历史 | 查看历史考试记录、成绩趋势、错题分布统计 |
 
@@ -56,7 +57,8 @@
 │   │   │   ├── knowledge.py      # 知识库文档/分块模型
 │   │   │   ├── course.py         # 课程大纲/章节/进度模型
 │   │   │   ├── quiz.py           # 测验/考试/错题模型
-│   │   │   └── face.py           # 人脸编码模型
+│   │   │   ├── face.py           # 人脸编码模型
+│   │   │   └── schedule.py       # 学习计划/作业模型
 │   │   ├── schemas/              # Pydantic 数据模式
 │   │   ├── routers/              # API 路由
 │   │   │   ├── auth.py           # 注册/登录/人脸认证
@@ -64,6 +66,7 @@
 │   │   │   ├── course.py         # 大纲生成/章节/进度
 │   │   │   ├── quiz.py           # 测验生成/提交/评分
 │   │   │   ├── rag.py            # 知识库 RAG 问答
+│   │   │   ├── schedule.py       # 学习计划/作业管理
 │   │   │   └── voice.py          # 语音指令解析
 │   │   ├── services/             # 核心服务层
 │   │   │   ├── document_parser.py # 文档解析 (PDF/DOCX/PPTX/TXT/MD)
@@ -124,6 +127,14 @@ copy ..\.env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY
 ```
 
+可选配置：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | 中文资料建议改为 `paraphrase-multilingual-MiniLM-L12-v2` |
+| `RAG_MAX_DISTANCE` | `1.6` | 过滤过远检索片段；设为 `0` 关闭绝对距离阈值 |
+| `FACE_IMAGES_DIR` | `backend/face_images` | 人脸样本目录，已支持中文路径 |
+
 ### 3. 启动后端
 
 ```bash
@@ -176,11 +187,15 @@ npm run dev        # 或启动开发服务器
 | `/api/quiz/progress/stats` | GET | 学习统计 |
 | `/api/quiz/wrong-questions` | GET | 错题本 |
 | `/api/rag/chat` | POST | 知识库 RAG 问答（多轮对话 + 引用来源） |
+| `/api/schedule/items` | GET/POST | 学习计划列表/新建任务 |
+| `/api/schedule/items/{id}` | PUT/DELETE | 编辑/删除任务 |
+| `/api/schedule/items/{id}/toggle` | PATCH | 切换完成状态 |
+| `/api/schedule/stats` | GET | 任务统计与近 7 天待办 |
 | `/api/voice/interpret` | POST | 语音指令解析 |
 
 ## 测试
 
-项目包含 58 个单元测试和 31 个系统测试用例，通过率 100%。
+项目包含 88 个自动化测试用例，当前全部通过。
 
 ```bash
 cd backend
