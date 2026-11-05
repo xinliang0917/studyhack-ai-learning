@@ -1,6 +1,5 @@
 ﻿# AI 智能学习辅助系统
 
-[![CI](https://github.com/xinliang0917/studyhack-ai-learning/actions/workflows/ci.yml/badge.svg)](https://github.com/xinliang0917/studyhack-ai-learning/actions/workflows/ci.yml)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/xinliang0917/studyhack-ai-learning)
 
 基于 FastAPI + Vue.js 的智能学习辅助平台，集成知识库管理、混合检索 RAG、课程大纲生成、AI 测验出题、错题复习、学习计划、人脸识别登录与语音控制。
@@ -95,7 +94,6 @@
 │   │   ├── store/                # Pinia 状态管理
 │   │   └── composables/          # 组合式函数
 │   └── package.json
-├── .github/workflows/ci.yml      # 后端测试 + 前端构建
 ├── Dockerfile                    # 前后端一体镜像
 ├── render.yaml                   # Render 一键部署
 ├── .dockerignore
