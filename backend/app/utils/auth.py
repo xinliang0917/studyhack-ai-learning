@@ -1,15 +1,18 @@
-﻿from fastapi import Depends, HTTPException, status, Header
+﻿from fastapi import Cookie, Depends, HTTPException, Header, status
 from jose import jwt, JWTError
 from app.config import settings
 
 async def get_current_user(
     authorization: str = Header(None),
     x_auth_token: str = Header(None),
+    app_token: str = Cookie(None),
 ) -> int:
     token = None
-    if authorization and authorization.startswith("Bearer "):
+    if isinstance(app_token, str) and app_token:
+        token = app_token
+    elif isinstance(authorization, str) and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1]
-    elif x_auth_token:
+    elif isinstance(x_auth_token, str) and x_auth_token:
         token = x_auth_token
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")

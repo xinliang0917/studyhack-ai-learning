@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="login-container">
     <div class="orb orb-1"></div>
     <div class="orb orb-2"></div>
@@ -48,6 +48,7 @@ import { useRouter } from "vue-router"
 import { ElMessage } from "element-plus"
 import { login, loginFace } from "../api/auth"
 import { useAppStore } from "../store"
+import { setToken } from "../utils/token"
 import FaceCamera from "../components/FaceCamera.vue"
 
 const router = useRouter()
@@ -69,7 +70,7 @@ async function handleLogin() {
   loading.value = true
   try {
     const res = await login(form.username, form.password)
-    localStorage.setItem("token", res.data.access_token)
+    setToken(res.data.access_token)
     store.setUser({ username: res.data.username })
     ElMessage.success("登录成功")
     router.push("/dashboard")
@@ -90,7 +91,7 @@ async function startFaceLogin() {
   faceLoading.value = true
   try {
     const res = await loginFace(faceUsername.value, faceBase64)
-    localStorage.setItem("token", res.data.access_token)
+    setToken(res.data.access_token)
     store.setUser({ username: res.data.username })
     ElMessage.success("人脸登录成功")
     router.push("/dashboard")

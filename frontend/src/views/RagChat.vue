@@ -303,6 +303,9 @@ async function send(text) {
   let streamed = false
   try {
     const token = localStorage.getItem('token')
+    if (token) {
+      document.cookie = `app_token=${token}; path=/; SameSite=Lax`
+    }
     const resp = await fetch('/api/rag/chat/stream', {
       method: 'POST',
       headers: {

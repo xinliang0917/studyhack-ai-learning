@@ -9,6 +9,7 @@ instance.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
   if (token) {
     config.headers['X-Auth-Token'] = token
+    document.cookie = `app_token=${token}; path=/; SameSite=Lax`
   }
   return config
 })

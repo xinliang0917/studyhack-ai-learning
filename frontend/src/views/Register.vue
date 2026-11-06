@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="register-container">
     <div class="orb orb-1"></div>
     <div class="orb orb-2"></div>
@@ -60,6 +60,7 @@ import { useRouter } from "vue-router"
 import { ElMessage } from "element-plus"
 import { register, registerFace } from "../api/auth"
 import { useAppStore } from "../store"
+import { setToken } from "../utils/token"
 import FaceCamera from "../components/FaceCamera.vue"
 
 const router = useRouter()
@@ -104,7 +105,7 @@ async function handleRegister() {
   loading.value = true
   try {
     const res = await register(form.username, form.password)
-    localStorage.setItem("token", res.data.access_token)
+    setToken(res.data.access_token)
     store.setUser({ username: res.data.username })
     registeredUsername.value = form.username
     ElMessage.success("账号创建成功！")

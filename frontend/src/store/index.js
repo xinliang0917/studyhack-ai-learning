@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { clearToken } from '../utils/token'
 
 export const useAppStore = defineStore('app', () => {
   const user = ref(JSON.parse(localStorage.getItem('user') || '{}'))
@@ -13,7 +14,7 @@ export const useAppStore = defineStore('app', () => {
 
   function logout() {
     user.value = {}
-    localStorage.removeItem('token')
+    clearToken()
     localStorage.removeItem('user')
   }
 
