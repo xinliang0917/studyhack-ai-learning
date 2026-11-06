@@ -18,3 +18,5 @@ export const autoPlan = (outlineId, days = 7, startDate = null) =>
     days,
     start_date: startDate,
   })
+
+export const createReviewPlan = () => api.post('/schedule/review-plan')

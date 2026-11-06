@@ -27,6 +27,17 @@
         />
       </div>
       <el-alert v-if="audioError" :title="audioError" type="error" show-icon :closable="true" @close="audioError = ''" style="margin-top: 8px" />
+      <div v-if="indexStatus.status && indexStatus.status !== 'idle'" class="index-status">
+        <el-tag :type="indexTagType" size="small">{{ indexStatusLabel }}</el-tag>
+        <span class="index-message">{{ indexStatus.message || '索引就绪' }}</span>
+        <span v-if="indexStatus.index_chunks !== undefined" class="index-count">共 {{ indexStatus.index_chunks }} 个分块</span>
+        <el-progress
+          v-if="indexStatus.status === 'indexing' && indexStatus.total"
+          :percentage="indexProgress"
+          :stroke-width="8"
+          style="width: 160px"
+        />
+      </div>
     </el-card>
     <el-card shadow="hover">
       <template #header>
@@ -65,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { ElMessage } from "element-plus"
 import AppLayout from "../components/AppLayout.vue"
 import {
@@ -75,6 +86,7 @@ import {
   refreshIndex,
   getDocumentContent,
   transcribeAudio,
+  getIndexStatus,
 } from "../api/knowledge"
 
 const docs = ref([])
@@ -87,6 +99,29 @@ const audioError = ref("")
 const viewDialogVisible = ref(false)
 const viewingDoc = ref({ content: "" })
 const deletingId = ref(null)
+const indexStatus = ref({})
+let indexTimer = null
+
+const indexStatusLabel = computed(() => ({
+  queued: '排队中',
+  indexing: '索引中',
+  ready: '索引就绪',
+  error: '索引失败',
+}[indexStatus.value.status] || indexStatus.value.status || ''))
+
+const indexTagType = computed(() => ({
+  queued: 'warning',
+  indexing: 'warning',
+  ready: 'success',
+  error: 'danger',
+}[indexStatus.value.status] || 'info'))
+
+const indexProgress = computed(() => {
+  const total = Number(indexStatus.value.total || 0)
+  const processed = Number(indexStatus.value.processed || 0)
+  if (!total) return 0
+  return Math.min(100, Math.round(processed / total * 100))
+})
 
 onMounted(async () => {
   try {
@@ -95,7 +130,34 @@ onMounted(async () => {
   } catch (e) {
     if (e.response?.status !== 401) console.warn("加载知识库列表失败", e)
   }
+  await loadIndexStatus()
 })
+
+onBeforeUnmount(() => stopPolling())
+
+async function loadIndexStatus() {
+  try {
+    const res = await getIndexStatus()
+    indexStatus.value = res.data || {}
+  } catch (e) { /* ignore */ }
+}
+
+function stopPolling() {
+  if (indexTimer) {
+    clearInterval(indexTimer)
+    indexTimer = null
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  indexTimer = setInterval(async () => {
+    await loadIndexStatus()
+    if (!['queued', 'indexing'].includes(indexStatus.value.status)) {
+      stopPolling()
+    }
+  }, 1500)
+}
 
 function triggerUpload() {
   fileInputRef.value?.click()
@@ -128,6 +190,8 @@ async function uploadFile(file) {
     } catch (listErr) {
       // 列表刷新失败不影响上传成功
     }
+    await loadIndexStatus()
+    startPolling()
   } catch (e) {
     const msg = e.response?.data?.detail || "上传失败，请重试"
     uploadError.value = msg
@@ -180,6 +244,7 @@ async function removeDoc(id) {
     await deleteDocument(id)
     ElMessage.success("已删除")
     docs.value = docs.value.filter(d => d.id !== id)
+    await loadIndexStatus()
   } catch (e) {
     ElMessage.error("删除失败")
   }
@@ -189,7 +254,9 @@ async function removeDoc(id) {
 async function refreshIndexHandler() {
   try {
     await refreshIndex()
-    ElMessage.success("索引已刷新")
+    ElMessage.success("索引重建任务已提交")
+    await loadIndexStatus()
+    startPolling()
   } catch (e) {
     ElMessage.error("刷新失败")
   }
@@ -207,5 +274,24 @@ async function refreshIndexHandler() {
 .audio-hint {
   color: #909399;
   font-size: 12px;
+}
+.index-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-lighter);
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.index-message {
+  flex: 1;
+  min-width: 160px;
+}
+.index-count {
+  color: var(--el-text-color-secondary);
 }
 </style>

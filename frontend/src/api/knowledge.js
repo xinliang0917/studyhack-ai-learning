@@ -24,3 +24,5 @@ export const transcribeAudio = (file) => {
   form.append('file', file)
   return api.post('/knowledge/transcribe', form)
 }
+
+export const getIndexStatus = () => api.get('/knowledge/index-status')

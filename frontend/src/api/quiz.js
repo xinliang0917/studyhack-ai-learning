@@ -33,3 +33,4 @@ export const reviewWrongQuestion = (questionId, quality) =>
 
 export const explainWrongQuestion = (questionId) =>
   api.post(`/quiz/wrong-questions/${questionId}/explain`)
+export const photoSolve = (form) => api.post('/quiz/photo-solve', form, { timeout: 180000 })

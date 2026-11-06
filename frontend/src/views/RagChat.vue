@@ -55,8 +55,17 @@
                   v-else-if="m.role === 'assistant' && m.html"
                   class="bubble markdown"
                   v-html="m.html"
+                  @click="onCitationClick($event, m)"
                 ></div>
                 <div v-else :class="['bubble', { error: m.error }]">{{ m.content }}</div>
+
+                <div v-if="m.role === 'assistant' && m.content && !m.streaming" class="msg-actions">
+                  <el-button text size="small" @click="speakMessage(m)">
+                    <el-icon><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v5a4.47 4.47 0 0 0 2.5-1.5zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></el-icon>
+                    朗读
+                  </el-button>
+                  <el-button text size="small" @click="stopSpeaking">停止</el-button>
+                </div>
 
                 <div v-if="m.sources && m.sources.length" class="sources">
                   <div class="sources-title">引用来源（点击查看原文）</div>
@@ -64,7 +73,7 @@
                     v-for="(s, si) in m.sources"
                     :key="si"
                     class="source"
-                    @click="openSource(s)"
+                    @click="openSource(s, m.query)"
                   >
                     <div class="source-head">
                       <span class="source-no">[{{ si + 1 }}]</span>
@@ -89,6 +98,14 @@
             :disabled="loading || sessionLoading"
             @keydown="onKeydown"
           />
+          <el-button
+            :type="listening ? 'danger' : 'default'"
+            :disabled="loading"
+            title="语音输入"
+            @click="toggleDictation"
+          >
+            <el-icon><Microphone /></el-icon>
+          </el-button>
           <el-button type="primary" :loading="loading" :disabled="!input.trim()" @click="send()">发送</el-button>
         </div>
       </el-card>
@@ -97,6 +114,7 @@
     <el-dialog v-model="sourceDialog" :title="sourceDoc.filename || '引用来源'" width="62%" top="6vh">
       <div class="source-dialog-meta">
         <span v-if="sourceDoc.chunk_index !== undefined">片段 #{{ sourceDoc.chunk_index }}</span>
+        <span v-if="sourceDoc.query" class="source-query">命中问题：{{ sourceDoc.query }}</span>
         <el-button
           v-if="!sourceFull && sourceDoc.doc_id"
           text
@@ -104,10 +122,17 @@
           size="small"
           :loading="sourceLoading"
           @click="loadFullDoc"
-        >查看全文</el-button>
+        >查看全文并定位</el-button>
+        <el-button
+          v-else-if="sourceFull"
+          text
+          type="primary"
+          size="small"
+          @click="backToChunk"
+        >只看片段</el-button>
       </div>
-      <el-scrollbar max-height="58vh">
-        <div class="source-dialog-content">{{ sourceDoc.content }}</div>
+      <el-scrollbar ref="sourceScrollRef" max-height="58vh">
+        <div class="source-dialog-content" v-html="sourceDisplayHtml"></div>
       </el-scrollbar>
       <template #footer>
         <el-button @click="sourceDialog = false">关闭</el-button>
@@ -159,6 +184,7 @@
         </el-table>
       </div>
       <template #footer>
+        <el-button @click="goFullEval">完整评估页</el-button>
         <el-button @click="evalDialog = false">关闭</el-button>
         <el-button type="primary" :loading="evalLoading" @click="runEval">开始评估</el-button>
       </template>
@@ -167,7 +193,8 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -183,9 +210,11 @@ import {
   listSessions,
 } from '../api/rag'
 import { getDocumentContent } from '../api/knowledge'
+import { cancelSpeech, speak } from '../composables/useVoice'
 
 marked.setOptions({ breaks: true, gfm: true })
 
+const router = useRouter()
 const messages = ref([])
 const input = ref('')
 const loading = ref(false)
@@ -195,6 +224,12 @@ const sourceDialog = ref(false)
 const sourceLoading = ref(false)
 const sourceFull = ref(false)
 const sourceDoc = ref({})
+const sourceScrollRef = ref(null)
+const sourcePreviewHtml = ref('')
+const sourceFullHtml = ref('')
+const listening = ref(false)
+let recognition = null
+const sourceDisplayHtml = computed(() => sourceFull.value ? sourceFullHtml.value : sourcePreviewHtml.value)
 const sessions = ref([])
 const sessionId = ref(null)
 const sessionLoading = ref(false)
@@ -216,7 +251,157 @@ function scrollToBottom() {
 }
 
 function renderMarkdown(text) {
-  return DOMPurify.sanitize(marked.parse(text || ''))
+  let html = DOMPurify.sanitize(marked.parse(text || ''))
+  html = html.replace(
+    /\[(\d+)\]/g,
+    (match, num) => `<span class="citation-ref" data-cite="${num}">[${num}]</span>`
+  )
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['data-cite'] })
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]))
+}
+
+function mergeRanges(ranges) {
+  const sorted = ranges
+    .filter(([start, end]) => end > start)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const merged = []
+  for (const range of sorted) {
+    const last = merged[merged.length - 1]
+    if (last && range[0] <= last[1]) {
+      last[1] = Math.max(last[1], range[1])
+    } else {
+      merged.push([...range])
+    }
+  }
+  return merged
+}
+
+function markedHtml(text, ranges, className) {
+  const merged = mergeRanges(ranges)
+  let html = ''
+  let cursor = 0
+  for (const [start, end] of merged) {
+    html += escapeHtml(text.slice(cursor, start))
+    html += `<mark class="${className}">${escapeHtml(text.slice(start, end))}</mark>`
+    cursor = end
+  }
+  html += escapeHtml(text.slice(cursor))
+  return html.replace(/\n/g, '<br>')
+}
+
+function extractTerms(query) {
+  const terms = new Set()
+  const words = (query || '').match(/[a-zA-Z0-9_]{2,}/g) || []
+  words.forEach(word => terms.add(word))
+  const runs = (query || '').match(/[\u4e00-\u9fff]+/g) || []
+  for (const run of runs) {
+    for (let size = Math.min(4, run.length); size >= 2; size -= 1) {
+      for (let index = 0; index + size <= run.length; index += 1) {
+        terms.add(run.slice(index, index + size))
+      }
+    }
+  }
+  return [...terms].filter(term => term.length >= 2).sort((a, b) => b.length - a.length)
+}
+
+function highlightText(text, query, chunk = '') {
+  const sourceText = text || ''
+  if (chunk) {
+    const index = sourceText.indexOf(chunk)
+    if (index >= 0) {
+      return markedHtml(
+        sourceText,
+        [[index, index + chunk.length]],
+        'chunk-mark'
+      )
+    }
+  }
+  const ranges = []
+  for (const term of extractTerms(query)) {
+    let index = sourceText.indexOf(term)
+    while (index >= 0) {
+      ranges.push([index, index + term.length])
+      index = sourceText.indexOf(term, index + term.length)
+    }
+  }
+  return markedHtml(sourceText, ranges, 'term-mark')
+}
+
+function onCitationClick(event, message) {
+  const target = event.target.closest('.citation-ref')
+  if (!target) return
+  const index = Number(target.dataset.cite) - 1
+  const source = message.sources?.[index]
+  if (source) {
+    openSource(source, message.query || '')
+  } else {
+    ElMessage.info('未找到对应的引用来源')
+  }
+}
+
+function speakMessage(message) {
+  if (message.content) speak(message.content)
+}
+
+function stopSpeaking() {
+  cancelSpeech()
+}
+
+function stopDictation() {
+  if (recognition) {
+    try { recognition.stop() } catch (e) { /* ignore */ }
+    recognition = null
+  }
+  listening.value = false
+}
+
+function toggleDictation() {
+  if (listening.value) {
+    stopDictation()
+    return
+  }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SpeechRecognition) {
+    ElMessage.warning('当前浏览器不支持语音输入，请使用 Chrome 或 Edge')
+    return
+  }
+  const base = input.value.trim()
+  recognition = new SpeechRecognition()
+  recognition.lang = 'zh-CN'
+  recognition.interimResults = true
+  recognition.continuous = false
+  recognition.onresult = event => {
+    let text = ''
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      text += event.results[index][0].transcript
+    }
+    input.value = (base ? base + ' ' : '') + text.trim()
+  }
+  recognition.onend = () => {
+    listening.value = false
+    recognition = null
+  }
+  recognition.onerror = () => {
+    listening.value = false
+    recognition = null
+  }
+  recognition.start()
+  listening.value = true
+}
+
+async function scrollToSourceMark() {
+  await nextTick()
+  const mark = document.querySelector('.source-dialog-content mark')
+  if (mark) mark.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
 
 async function renderMath() {
@@ -287,7 +472,9 @@ async function send(text) {
   messages.value.push({ role: 'user', content: question })
   messages.value.push({ role: 'assistant', content: '', sources: [], streaming: true })
   const assistant = messages.value[messages.value.length - 1]
+  assistant.query = question
   input.value = ''
+  stopDictation()
   loading.value = true
   scrollToBottom()
 
@@ -306,7 +493,10 @@ async function send(text) {
     if (token) {
       document.cookie = `app_token=${token}; path=/; SameSite=Lax`
     }
-    const resp = await fetch('/api/rag/chat/stream', {
+    const streamUrl = token
+      ? `/api/rag/chat/stream?access_token=${encodeURIComponent(token)}`
+      : '/api/rag/chat/stream'
+    const resp = await fetch(streamUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -370,24 +560,39 @@ async function send(text) {
   }
 }
 
-async function openSource(source) {
+async function openSource(source, query = '') {
   sourceFull.value = false
-  sourceDoc.value = { ...source }
+  sourceDoc.value = { ...source, query }
+  sourcePreviewHtml.value = highlightText(source.content || '', query)
+  sourceFullHtml.value = ''
   sourceDialog.value = true
+  await scrollToSourceMark()
 }
 
 async function loadFullDoc() {
   if (!sourceDoc.value.doc_id) return
+  const chunk = sourceDoc.value.content || ''
   sourceLoading.value = true
   try {
     const res = await getDocumentContent(sourceDoc.value.doc_id)
     sourceDoc.value = { ...sourceDoc.value, content: res.data.content }
+    sourceFullHtml.value = highlightText(
+      res.data.content || '',
+      sourceDoc.value.query || '',
+      chunk
+    )
     sourceFull.value = true
+    await scrollToSourceMark()
   } catch (e) {
     ElMessage.error('加载全文失败')
   } finally {
     sourceLoading.value = false
   }
+}
+
+function backToChunk() {
+  sourceFull.value = false
+  nextTick(scrollToSourceMark)
 }
 
 function clearChat() {
@@ -411,12 +616,17 @@ async function selectSession(id) {
   sessionLoading.value = true
   try {
     const res = await getSession(id)
-    messages.value = (res.data.messages || []).map(message => ({
-      role: message.role,
-      content: message.content,
-      sources: message.sources || [],
-      html: message.role === 'assistant' ? renderMarkdown(message.content) : undefined,
-    }))
+    let lastQuery = ''
+    messages.value = (res.data.messages || []).map(message => {
+      if (message.role === 'user') lastQuery = message.content
+      return {
+        role: message.role,
+        content: message.content,
+        sources: message.sources || [],
+        query: message.role === 'assistant' ? lastQuery : undefined,
+        html: message.role === 'assistant' ? renderMarkdown(message.content) : undefined,
+      }
+    })
     await renderMath()
     scrollToBottom()
   } catch (e) {
@@ -470,6 +680,11 @@ function openEval() {
   evalDialog.value = true
 }
 
+function goFullEval() {
+  evalDialog.value = false
+  router.push('/rag-eval')
+}
+
 async function runEval() {
   const cases = evalInput.value
     .split('\n')
@@ -500,6 +715,11 @@ async function runEval() {
     evalLoading.value = false
   }
 }
+
+onBeforeUnmount(() => {
+  stopDictation()
+  cancelSpeech()
+})
 
 onMounted(async () => {
   await loadSessions()
@@ -749,6 +969,41 @@ onMounted(async () => {
   line-height: 1.8;
   color: #303133;
   font-size: 14px;
+}
+.source-dialog-content :deep(mark.chunk-mark) {
+  background: #fff3c4;
+  color: #303133;
+  padding: 2px 0;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px #fff3c4;
+}
+.source-dialog-content :deep(mark.term-mark) {
+  background: #ffe58f;
+  color: #303133;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.source-query {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+.bubble.markdown :deep(.citation-ref) {
+  color: #409eff;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.bubble.markdown :deep(.citation-ref:hover) {
+  background: #ecf5ff;
+  text-decoration: underline;
+}
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
 }
 .composer {
   display: flex;

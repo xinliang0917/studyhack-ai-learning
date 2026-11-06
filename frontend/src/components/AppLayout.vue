@@ -85,6 +85,8 @@ const menuItems = [
   { path: '/dashboard', label: '首页', icon: 'DataBoard' },
   { path: '/knowledge', label: '知识库', icon: 'Folder' },
   { path: '/rag', label: 'AI 问答', icon: 'ChatDotRound' },
+  { path: '/rag-eval', label: '检索评估', icon: 'TrendCharts' },
+  { path: '/photo-solve', label: '拍照识题', icon: 'Camera' },
   { path: '/schedule', label: '学习计划', icon: 'Calendar' },
   { path: '/course', label: '课程大纲', icon: 'Reading' },
   { path: '/knowledge-graph', label: '知识图谱', icon: 'Share' },

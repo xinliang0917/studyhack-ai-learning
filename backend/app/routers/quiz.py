@@ -1,9 +1,10 @@
 import json, time
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc, distinct, select
 from typing import List
 from datetime import datetime, timedelta
+from app.config import settings
 from app.database import get_db
 from app.models.quiz import QuizQuestion, ExamResult, WrongQuestion
 from app.models.course import Chapter, CourseOutline
@@ -12,6 +13,7 @@ from app.schemas.quiz import (
     QuestionResponse, AnswerSubmit, ExamResultResponse, WrongQuestionResponse,
     WrongReviewRequest,
 )
+from app.services.document_parser import DocumentParser
 from app.services.llm_service import LLMService
 from app.services.quiz_engine import QuizEngine
 from app.services.vector_store import vector_store
@@ -573,6 +575,8 @@ def review_wrong_question(
     record.last_reviewed_at = now
     record.next_review_at = now + timedelta(days=interval)
     record.reviewed = 1
+    from app.routers.schedule import complete_review_task
+    complete_review_task(db, user_id, question_id)
     db.commit()
     return {
         "question_id": question_id,
@@ -729,4 +733,71 @@ def get_learning_stats(
         "learning": learning,
         "not_started": not_started,
         "completion_rate": round((completed / total * 100) if total > 0 else 0, 1),
+    }
+
+
+@router.post("/photo-solve")
+async def photo_solve(
+    file: UploadFile = File(None),
+    text: str = Form(""),
+    user_id: int = Depends(get_current_user),
+):
+    """OCR a question image (or accept corrected text) and explain it step by step."""
+    recognized = (text or "").strip()
+    ocr_used = False
+    if not recognized:
+        if file is None:
+            raise HTTPException(status_code=400, detail="请上传题目图片或手动输入题目")
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="图片内容为空")
+        if len(content) > settings.max_upload_mb * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"图片超过 {settings.max_upload_mb}MB 限制",
+            )
+        recognized = DocumentParser._ocr_image_bytes(content).strip()
+        ocr_used = True
+        if not recognized:
+            raise HTTPException(
+                status_code=422,
+                detail="OCR 未识别到文字，请手动输入或修改题目后重试",
+            )
+
+    try:
+        sources = vector_store.search(recognized[:500], 4, user_id=user_id)
+    except Exception:
+        sources = []
+    context = ""
+    if sources:
+        context = "\n\n".join(
+            f"[{index}] 来源：{source.get('filename') or '知识库'}\n{source.get('content', '')}"
+            for index, source in enumerate(sources, start=1)
+        )
+
+    prompt = f"""你是一位耐心的学科老师。请帮助学生理解下面这道题。
+
+【题目】
+{recognized}
+
+【知识库检索片段】
+{context or "（知识库中没有直接相关的片段，请使用通用学科知识，并说明这是通用讲解）"}
+
+要求：
+1. 先用自己的话复述题意，指出题目考查的知识点。
+2. 按步骤讲解解题思路，每一步说明理由。
+3. 如果片段中有依据，在对应位置标注引用编号 [1][2]。
+4. 最后给出易错点和一句话总结。
+5. 使用中文，条理清晰，不要只给最终答案。"""
+
+    answer = LLMService.chat(
+        [{"role": "user", "content": prompt}], temperature=0.3
+    )
+    if answer.startswith("[LLM Error"):
+        raise HTTPException(status_code=502, detail="大模型调用失败，请稍后重试")
+    return {
+        "recognized_text": recognized,
+        "answer": answer,
+        "sources": sources,
+        "ocr_used": ocr_used,
     }

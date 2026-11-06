@@ -20,6 +20,9 @@
         <el-form-item>
           <el-button @click="loadWrongQuestions">刷新</el-button>
           <el-button type="success" @click="loadReviewQueue">今日复习 ({{ reviewCount }})</el-button>
+          <el-button type="warning" plain :loading="planLoading" @click="generateReviewPlan">
+            加入今日任务
+          </el-button>
           <el-button v-if="reviewMode" @click="exitReview">退出复习</el-button>
           <el-button type="primary" @click="togglePracticeMode">
             {{ practiceMode ? '退出重练' : '错题重练' }}
@@ -245,6 +248,7 @@ import {
   reviewWrongQuestion,
   explainWrongQuestion,
 } from '../api/quiz'
+import { createReviewPlan } from '../api/schedule'
 import { speak } from '../composables/useVoice'
 
 const wrongList = ref([])
@@ -257,6 +261,7 @@ const allChapters = ref([])
 const stats = ref(null)
 const reviewMode = ref(false)
 const reviewCount = ref(0)
+const planLoading = ref(false)
 const explainDialog = ref(false)
 const explainLoading = ref(false)
 const explainData = ref({ answer: '', sources: [] })
@@ -321,6 +326,24 @@ async function loadReviewCount() {
     const res = await getReviewQueue(100)
     reviewCount.value = (res.data || []).length
   } catch (e) { /* ignore */ }
+}
+
+async function generateReviewPlan() {
+  planLoading.value = true
+  try {
+    const res = await createReviewPlan()
+    const count = res.data.created || 0
+    if (count) {
+      ElMessage.success(`已生成 ${count} 个今日复习任务`)
+    } else {
+      ElMessage.info('今日复习任务已存在，或没有到期错题')
+    }
+    await loadReviewCount()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '生成复习任务失败')
+  } finally {
+    planLoading.value = false
+  }
 }
 
 async function loadReviewQueue() {

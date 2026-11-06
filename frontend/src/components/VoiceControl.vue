@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div style="display: flex; align-items: center; gap: 6px">
     <el-switch :model-value="isActive" size="small" @change="toggleVoice" style="margin-right: 2px" />
     <el-tooltip :content="isActive ? '语音识别已开启' : '语音识别已关闭'" placement="bottom">
@@ -42,6 +42,9 @@ const commandMap = {
   '知识库': '/knowledge',
   '打开知识库': '/knowledge',
   'AI问答': '/rag',
+  '检索评估': '/rag-eval',
+  '拍照识题': '/photo-solve',
+  '识题': '/photo-solve',
   '智能问答': '/rag',
   '打开问答': '/rag',
   '学习计划': '/schedule',
@@ -215,6 +218,14 @@ function readCurrentPage() {
   }
   if (path === '/rag') {
     speak('知识库智能问答页面')
+    return
+  }
+  if (path === '/rag-eval') {
+    speak('检索评估页面，可以对比不同检索模式')
+    return
+  }
+  if (path === '/photo-solve') {
+    speak('拍照识题页面，上传题目图片后分步讲解')
     return
   }
   if (path === '/schedule') {

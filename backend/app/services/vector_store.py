@@ -353,12 +353,12 @@ class VectorStore:
         return results[:limit]
 
     # ---------------- public API ----------------
-    def search(self, query, k=5, user_id=None):
+    def search(self, query, k=5, user_id=None, mode=None):
         meta = self._load_meta()
         if not meta:
             return []
 
-        mode = (settings.retrieval_mode or "").strip().lower()
+        mode = (mode or settings.retrieval_mode or "").strip().lower()
         vector_results = []
         bm25_results = []
         if mode in ("hybrid", "vector"):
@@ -396,6 +396,39 @@ class VectorStore:
             if chunk.get("doc_id") == doc_id and chunk.get("chunk_index") == chunk_index:
                 return chunk
         return None
+
+    def vector_ready(self):
+        meta = self._load_meta() or {}
+        return (
+            self.model is not None
+            and bool(meta.get("dimension"))
+            and os.path.exists(self.index_path)
+        )
+
+    def upsert_document(self, doc_id, chunks):
+        """Replace one document's chunks without touching other documents."""
+        meta = self._load_meta()
+        existing = []
+        if meta:
+            existing = [
+                chunk for chunk in meta.get("chunks", [])
+                if chunk.get("doc_id") != doc_id
+            ]
+        self.build_index(existing + list(chunks))
+
+    def remove_document(self, doc_id):
+        """Remove one document from the index and keep the rest searchable."""
+        meta = self._load_meta()
+        if not meta:
+            return
+        remaining = [
+            chunk for chunk in meta.get("chunks", [])
+            if chunk.get("doc_id") != doc_id
+        ]
+        if remaining:
+            self.build_index(remaining)
+        else:
+            self.clear()
 
     def clear(self):
         for path in (self.index_path, self.meta_path, self.legacy_meta_path):

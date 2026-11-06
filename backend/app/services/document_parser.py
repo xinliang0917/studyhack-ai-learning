@@ -44,9 +44,11 @@ class DocumentParser:
         try:
             import pytesseract
             from PIL import Image
-            return pytesseract.image_to_string(
-                Image.open(io.BytesIO(img_bytes)), lang="chi_sim+eng"
-            )
+            image = Image.open(io.BytesIO(img_bytes))
+            try:
+                return pytesseract.image_to_string(image, lang="chi_sim+eng")
+            except Exception:
+                return pytesseract.image_to_string(image, lang="eng")
         except Exception:
             return ""
 

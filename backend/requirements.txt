@@ -24,3 +24,4 @@ aiofiles
 httpx
 pytest
 pytest-asyncio
+pytesseract

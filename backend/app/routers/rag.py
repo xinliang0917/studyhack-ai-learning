@@ -64,6 +64,7 @@ class EvalCase(BaseModel):
 class RagEvalRequest(BaseModel):
     cases: List[EvalCase]
     k: int = 5
+    modes: List[str] = Field(default_factory=list)
 
 
 class SessionCreate(BaseModel):
@@ -230,22 +231,21 @@ def rag_chat_stream(data: RagChatRequest, user_id: int = Depends(get_current_use
     )
 
 
-@router.post("/evaluate")
-def evaluate_rag(data: RagEvalRequest, user_id: int = Depends(get_current_user)):
-    """Evaluate retrieval quality with hit@k / MRR on user-provided cases."""
-    cases = [case for case in data.cases if case.expected_keywords][:50]
-    if not cases:
-        raise HTTPException(status_code=400, detail="请至少提供一条带关键词的评估用例")
-    limit = max(1, min(data.k, 10))
+MODE_LABELS = {
+    "bm25": "BM25 关键词",
+    "hybrid": "混合检索",
+    "vector": "向量检索",
+}
 
+
+def _run_eval(cases, limit, user_id, mode):
     results = []
     hits = 0
     reciprocal_rank = 0.0
     for case in cases:
-        try:
-            sources = vector_store.search(case.question, limit, user_id=user_id)
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"检索不可用：{exc}") from exc
+        sources = vector_store.search(
+            case.question, limit, user_id=user_id, mode=mode
+        )
         keywords = [kw.strip().lower() for kw in case.expected_keywords if kw.strip()]
         rank = None
         for index, source in enumerate(sources, start=1):
@@ -270,7 +270,6 @@ def evaluate_rag(data: RagEvalRequest, user_id: int = Depends(get_current_user))
                 for source in sources[:3]
             ],
         })
-
     return {
         "summary": {
             "cases": len(cases),
@@ -280,6 +279,56 @@ def evaluate_rag(data: RagEvalRequest, user_id: int = Depends(get_current_user))
             "k": limit,
         },
         "results": results,
+    }
+
+
+@router.post("/evaluate")
+def evaluate_rag(data: RagEvalRequest, user_id: int = Depends(get_current_user)):
+    """Evaluate retrieval quality with hit@k / MRR across retrieval modes."""
+    cases = [case for case in data.cases if case.expected_keywords][:50]
+    if not cases:
+        raise HTTPException(status_code=400, detail="请至少提供一条带关键词的评估用例")
+    limit = max(1, min(data.k, 10))
+
+    requested = []
+    for mode in (data.modes or [settings.retrieval_mode]):
+        mode = (mode or "").strip().lower()
+        if mode in MODE_LABELS and mode not in requested:
+            requested.append(mode)
+    if not requested:
+        requested = ["bm25"]
+
+    modes = []
+    for mode in requested:
+        if mode == "vector" and not vector_store.vector_ready():
+            modes.append({
+                "mode": mode,
+                "label": MODE_LABELS[mode],
+                "available": False,
+                "summary": {
+                    "cases": len(cases),
+                    "hits": 0,
+                    "hit_rate": 0.0,
+                    "mrr": 0.0,
+                    "k": limit,
+                },
+                "results": [],
+            })
+            continue
+        try:
+            evaluated = _run_eval(cases, limit, user_id, mode)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"检索不可用：{exc}") from exc
+        evaluated["mode"] = mode
+        evaluated["label"] = MODE_LABELS[mode]
+        evaluated["available"] = True
+        modes.append(evaluated)
+
+    primary = modes[0]
+    return {
+        "summary": primary["summary"],
+        "results": primary["results"],
+        "modes": modes,
     }
 
 

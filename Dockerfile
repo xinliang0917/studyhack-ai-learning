@@ -13,13 +13,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SQLITE_PATH=ai_learning.db \
     SEED_DEMO=true \
     EMBEDDING_ENABLED=false \
+    OCR_ENABLED=true \
     RETRIEVAL_MODE=bm25 \
     CORS_ORIGINS=*
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 tesseract-ocr \
+    && (apt-get install -y --no-install-recommends tesseract-ocr-chi-sim || true) \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements-deploy.txt /app/backend/requirements-deploy.txt

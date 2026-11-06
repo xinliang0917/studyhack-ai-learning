@@ -22,3 +22,5 @@ export const resetProgress = () => api.post('/course/progress/reset')
 export const deleteOutline = (id) => api.delete(`/course/outline/${id}`)
 
 export const getKnowledgeGraph = (outlineId) => api.get(`/learning/graph/${outlineId}`)
+
+export const getLearningDashboard = () => api.get('/learning/dashboard')

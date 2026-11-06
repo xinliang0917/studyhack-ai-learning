@@ -1,9 +1,12 @@
 import os as _os
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+import threading
+from datetime import datetime
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from typing import List
 from app.config import settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models.knowledge import KnowledgeDoc, KnowledgeChunk
 from app.schemas.knowledge import KnowledgeDocResponse, UploadResponse
 from app.services.asr_service import asr_service
@@ -15,6 +18,33 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 SUPPORTED_TYPES = {"pdf", "docx", "txt", "md", "markdown", "pptx"}
 AUDIO_TYPES = {"wav", "mp3", "m4a", "flac", "ogg", "webm"}
+
+_index_lock = threading.Lock()
+_index_state = {
+    "status": "idle",
+    "mode": "",
+    "total": 0,
+    "processed": 0,
+    "current_doc": "",
+    "message": "",
+    "updated_at": None,
+}
+
+
+def _set_index_state(**values):
+    with _index_lock:
+        _index_state.update(values)
+        _index_state["updated_at"] = datetime.utcnow().isoformat()
+
+
+def _get_index_state():
+    with _index_lock:
+        state = dict(_index_state)
+    meta = vector_store._load_meta() or {}
+    state["index_chunks"] = len(meta.get("chunks", []))
+    if state["status"] == "idle" and state["index_chunks"]:
+        state["status"] = "ready"
+    return state
 
 
 def _collect_chunks(db: Session) -> list:
@@ -49,12 +79,50 @@ def _create_document(db, user_id, filename, ext, content, file_path, texts):
     for i, chunk in enumerate(chunks):
         db.add(KnowledgeChunk(doc_id=doc.id, chunk_index=i, content=chunk["content"]))
     db.commit()
-    all_chunks = _collect_chunks(db)
-    if all_chunks:
-        try:
-            vector_store.build_index(all_chunks)
-        except Exception as e:
-            print(f"Index build after upload: {e}")
+
+    rows = (
+        db.query(KnowledgeChunk)
+        .filter(KnowledgeChunk.doc_id == doc.id)
+        .order_by(KnowledgeChunk.chunk_index)
+        .all()
+    )
+    new_chunks = [
+        {
+            "content": chunk.content,
+            "index": chunk.id,
+            "doc_id": chunk.doc_id,
+            "chunk_index": chunk.chunk_index,
+            "filename": filename,
+            "user_id": user_id,
+        }
+        for chunk in rows
+    ]
+    _set_index_state(
+        status="indexing",
+        mode="incremental",
+        total=len(new_chunks),
+        processed=0,
+        current_doc=filename,
+        message="正在增量索引当前文档",
+    )
+    try:
+        if vector_store._load_meta():
+            vector_store.upsert_document(doc.id, new_chunks)
+        else:
+            vector_store.build_index(_collect_chunks(db))
+        _set_index_state(
+            status="ready",
+            processed=len(new_chunks),
+            current_doc="",
+            message=f"已索引 {len(new_chunks)} 个分块",
+        )
+    except Exception as e:
+        print(f"Index build after upload: {e}")
+        _set_index_state(
+            status="error",
+            current_doc="",
+            message=f"索引失败：{e}",
+        )
     return doc
 
 
@@ -145,32 +213,76 @@ def delete_document(
     db.delete(doc)
     db.commit()
     DocumentParser.delete_file(stored_path)
-    if deleted_ids:
-        try:
-            vector_store.mark_deleted(deleted_ids)
-        except Exception as e:
-            print(f"Mark deleted failed: {e}")
-    if not db.query(KnowledgeChunk).first():
-        try:
-            vector_store.clear()
-        except Exception as e:
-            print(f"Index clear after delete: {e}")
+    _set_index_state(
+        status="indexing",
+        mode="incremental",
+        total=len(deleted_ids),
+        processed=0,
+        current_doc=doc.filename,
+        message="正在移除文档索引",
+    )
+    try:
+        vector_store.remove_document(doc_id)
+        _set_index_state(
+            status="ready",
+            processed=len(deleted_ids),
+            current_doc="",
+            message=f"已移除 {len(deleted_ids)} 个分块",
+        )
+    except Exception as e:
+        print(f"Remove index failed: {e}")
+        _set_index_state(status="error", current_doc="", message=f"移除索引失败：{e}")
     return {"message": "Document deleted"}
 
-@router.post("/refresh")
-def refresh_index(db: Session = Depends(get_db), user_id: int = Depends(get_current_user)):
-    chunks = _collect_chunks(db)
-    if chunks:
-        try:
+def _rebuild_all_index():
+    _set_index_state(
+        status="indexing",
+        mode="full",
+        total=0,
+        processed=0,
+        current_doc="",
+        message="正在读取知识库分块",
+    )
+    db = SessionLocal()
+    try:
+        chunks = _collect_chunks(db)
+        _set_index_state(total=len(chunks), message="正在重建全量索引")
+        if chunks:
             vector_store.build_index(chunks)
-        except Exception as e:
-            print(f"Index refresh: {e}")
-    else:
-        try:
+        else:
             vector_store.clear()
-        except Exception as e:
-            print(f"Index clear on refresh: {e}")
-    return {"message": "Index refreshed"}
+        _set_index_state(
+            status="ready",
+            processed=len(chunks),
+            message=f"全量索引完成，共 {len(chunks)} 个分块",
+        )
+    except Exception as e:
+        print(f"Index refresh: {e}")
+        _set_index_state(status="error", message=f"索引重建失败：{e}")
+    finally:
+        db.close()
+
+
+@router.post("/refresh")
+def refresh_index(
+    background_tasks: BackgroundTasks,
+    user_id: int = Depends(get_current_user),
+):
+    _set_index_state(
+        status="queued",
+        mode="full",
+        total=0,
+        processed=0,
+        current_doc="",
+        message="索引任务已排队",
+    )
+    background_tasks.add_task(_rebuild_all_index)
+    return {"message": "Index refresh started", "status": "queued"}
+
+
+@router.get("/index-status")
+def index_status(user_id: int = Depends(get_current_user)):
+    return _get_index_state()
 
 @router.get("/search")
 def search_knowledge(

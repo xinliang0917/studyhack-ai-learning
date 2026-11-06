@@ -187,7 +187,7 @@ import {
 } from '../api/schedule'
 import { getOutlines } from '../api/course'
 
-const TYPE_LABELS = { course: '课程', homework: '作业', exam: '考试', other: '其他' }
+const TYPE_LABELS = { course: '课程', homework: '作业', exam: '考试', other: '其他', review: '复习' }
 const STATUS_LABELS = { todo: '待完成', doing: '进行中', done: '已完成' }
 const PRIORITY_LABELS = { low: '低', normal: '中', high: '高' }
 
@@ -332,7 +332,7 @@ function isOverdue(row) {
 }
 
 function typeTag(type) {
-  return { course: '', homework: 'success', exam: 'danger', other: 'info' }[type] || 'info'
+  return { course: '', homework: 'success', exam: 'danger', other: 'info', review: 'warning' }[type] || 'info'
 }
 
 function priorityTag(priority) {

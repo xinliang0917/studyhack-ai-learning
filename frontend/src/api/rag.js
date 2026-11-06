@@ -10,4 +10,4 @@ export const getSession = (id) => api.get(`/rag/sessions/${id}`)
 
 export const deleteSession = (id) => api.delete(`/rag/sessions/${id}`)
 
-export const evaluateRag = (cases, k = 5) => api.post("/rag/evaluate", { cases, k })
+export const evaluateRag = (cases, k = 5, modes = []) => api.post("/rag/evaluate", { cases, k, modes })
