@@ -358,7 +358,7 @@ class VectorStore:
         if not meta:
             return []
 
-        mode = settings.retrieval_mode
+        mode = (settings.retrieval_mode or "").strip().lower()
         vector_results = []
         bm25_results = []
         if mode in ("hybrid", "vector"):

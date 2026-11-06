@@ -27,7 +27,7 @@ class Settings:
         self.embedding_enabled = os.getenv("EMBEDDING_ENABLED", "true").lower() == "true"
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
         self.embedding_device = os.getenv("EMBEDDING_DEVICE", "")
-        self.retrieval_mode = os.getenv("RETRIEVAL_MODE", "hybrid").lower()
+        self.retrieval_mode = os.getenv("RETRIEVAL_MODE", "hybrid").strip().lower()
         self.rerank_enabled = os.getenv("RERANK_ENABLED", "false").lower() == "true"
         self.rerank_model = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
         self.rag_max_distance = float(os.getenv("RAG_MAX_DISTANCE", "1.6"))
