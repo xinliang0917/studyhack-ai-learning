@@ -77,7 +77,18 @@ def on_startup():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "message": "AI Learning Assistant API is running"}
+    from app.services.vector_store import VECTOR_DIR, vector_store
+    meta = vector_store._load_meta() or {}
+    chunks = meta.get("chunks", [])
+    return {
+        "status": "ok",
+        "message": "AI Learning Assistant API is running",
+        "retrieval_mode": settings.retrieval_mode,
+        "index_chunks": len(chunks),
+        "index_ready": bool(chunks),
+        "meta_persisted": os.path.exists(vector_store.meta_path),
+        "vector_dir_writable": os.access(VECTOR_DIR, os.W_OK),
+    }
 
 # Serve frontend static files from repository root/frontend/dist
 frontend_dist = os.path.join(

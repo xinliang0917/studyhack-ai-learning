@@ -25,6 +25,7 @@ class VectorStore:
         self.model = None
         self._reranker = None
         self._bm25_cache = {}
+        self._memory_meta = None
         if not settings.embedding_enabled:
             print("Embedding disabled; using BM25 retrieval only")
         else:
@@ -43,6 +44,8 @@ class VectorStore:
 
     # ---------------- metadata ----------------
     def _load_meta(self):
+        if self._memory_meta is not None:
+            return self._memory_meta
         if os.path.exists(self.meta_path):
             try:
                 with open(self.meta_path, "r", encoding="utf-8") as f:
@@ -63,13 +66,25 @@ class VectorStore:
         return None
 
     def _save_meta(self, meta):
-        payload = {
-            "chunks": meta.get("chunks", []),
-            "dimension": meta.get("dimension", 0),
-            "deleted": sorted(meta.get("deleted", set())),
+        chunks = meta.get("chunks", [])
+        dimension = meta.get("dimension", 0)
+        deleted = set(meta.get("deleted", set()))
+        self._memory_meta = {
+            "chunks": chunks,
+            "dimension": dimension,
+            "deleted": deleted,
         }
-        with open(self.meta_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
+        payload = {
+            "chunks": chunks,
+            "dimension": dimension,
+            "deleted": sorted(deleted),
+        }
+        try:
+            os.makedirs(VECTOR_DIR, exist_ok=True)
+            with open(self.meta_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False)
+        except Exception as e:
+            print("Meta persist failed; using in-memory index:", e)
 
     def _meta_mtime(self):
         mtimes = [
@@ -137,29 +152,36 @@ class VectorStore:
 
     # ---------------- index ----------------
     def build_index(self, chunks):
-        if self.model is None:
-            self._save_meta({"chunks": chunks, "dimension": 0, "deleted": set()})
-            if os.path.exists(self.index_path):
-                os.remove(self.index_path)
-            self._bm25_cache = {}
-            return
-        texts = [c["content"] for c in chunks]
-        embeddings = self.model.encode(
-            texts, show_progress_bar=False, normalize_embeddings=True
-        )
-        import faiss
-        dimension = embeddings.shape[1]
-        index = faiss.IndexFlatL2(dimension)
-        index.add(embeddings.astype(np.float32))
-        faiss.write_index(index, self.index_path)
-        self._save_meta({"chunks": chunks, "dimension": dimension, "deleted": set()})
-        if os.path.exists(self.legacy_meta_path):
+        self._save_meta({"chunks": chunks, "dimension": 0, "deleted": set()})
+        if os.path.exists(self.index_path):
             try:
-                os.remove(self.legacy_meta_path)
-            except OSError:
-                pass
-        self.dimension = dimension
+                os.remove(self.index_path)
+            except OSError as e:
+                print("Old vector index remove failed:", e)
         self._bm25_cache = {}
+        self.dimension = 0
+        if self.model is None:
+            return
+        try:
+            texts = [c["content"] for c in chunks]
+            embeddings = self.model.encode(
+                texts, show_progress_bar=False, normalize_embeddings=True
+            )
+            import faiss
+            dimension = embeddings.shape[1]
+            index = faiss.IndexFlatL2(dimension)
+            index.add(embeddings.astype(np.float32))
+            faiss.write_index(index, self.index_path)
+            self._save_meta({"chunks": chunks, "dimension": dimension, "deleted": set()})
+            if os.path.exists(self.legacy_meta_path):
+                try:
+                    os.remove(self.legacy_meta_path)
+                except OSError:
+                    pass
+            self.dimension = dimension
+            self._bm25_cache = {}
+        except Exception as e:
+            print("Vector index build failed; BM25 only:", e)
 
     def mark_deleted(self, chunk_ids):
         meta = self._load_meta()
@@ -257,7 +279,11 @@ class VectorStore:
         return item
 
     def _vector_search(self, query, k, meta, user_id):
-        if self.model is None or not os.path.exists(self.index_path):
+        if (
+            self.model is None
+            or not meta.get("dimension")
+            or not os.path.exists(self.index_path)
+        ):
             return []
         import faiss
         index = faiss.read_index(self.index_path)
@@ -375,6 +401,7 @@ class VectorStore:
         for path in (self.index_path, self.meta_path, self.legacy_meta_path):
             if os.path.exists(path):
                 os.remove(path)
+        self._memory_meta = None
         self._bm25_cache = {}
 
 

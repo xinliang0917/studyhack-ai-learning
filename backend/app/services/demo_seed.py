@@ -65,7 +65,8 @@ def seed_demo():
     try:
         existing = db.query(User).filter(User.username == DEMO_USERNAME).first()
         if existing:
-            print("Demo user already exists; skip seeding")
+            print("Demo user already exists; rebuilding demo index")
+            _build_demo_index(db)
             return
 
         user = User(
