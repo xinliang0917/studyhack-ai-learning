@@ -103,6 +103,7 @@
 │   │   └── composables/          # 组合式函数
 │   └── package.json
 ├── Dockerfile                    # 前后端一体镜像
+├── ms_deploy.json                # ModelScope 创空间部署清单
 ├── render.yaml                   # Render 一键部署
 ├── .dockerignore
 ├── .gitignore
@@ -261,7 +262,33 @@ pytest tests/ -v
 
 ## 部署
 
-### Render 一键部署（推荐）
+### ModelScope 创空间（国内推荐）
+
+仓库已包含 `ms_deploy.json` 和 `Dockerfile`，容器监听 `7860` 端口：
+
+1. 魔搭社区 → 创空间 → 创建创空间 → 编程式创空间 → SDK 选 **Docker**
+2. 资源选 `platform/2v-cpu-16g-mem`
+3. 复制创空间 Git 地址，推送代码：
+
+```bash
+git remote add modelscope <你的创空间 Git 地址>
+git push modelscope main
+```
+
+4. 在创空间设置中配置环境变量：
+
+```text
+DEEPSEEK_API_KEY=你的 key
+JWT_SECRET=随机字符串
+EMBEDDING_ENABLED=false
+RETRIEVAL_MODE=bm25
+```
+
+5. 等待构建完成，访问创空间公网地址。
+
+> ModelScope Git 推送通常使用魔搭用户名 + Access Token 作为密码。免费 CPU 资源默认使用 BM25 + SQLite，重启后数据会重置。
+
+### Render 部署（需要境外卡验证）
 
 仓库包含 `render.yaml` 和 `Dockerfile`：
 
@@ -277,7 +304,7 @@ OCR 与 FunASR 默认关闭：需要时安装 `backend/requirements-ocr.txt`、�
 
 ```bash
 docker build -t studyhack-ai-learning .
-docker run -p 8000:8000 \
+docker run -p 7860:7860 \
   -e DEEPSEEK_API_KEY=your-key \
   -e JWT_SECRET=change-me \
   -e EMBEDDING_ENABLED=false \
@@ -285,7 +312,7 @@ docker run -p 8000:8000 \
   studyhack-ai-learning
 ```
 
-浏览器打开 http://localhost:8000。生产环境建议挂载 `/app/backend/uploads`、`/app/backend/vector_index` 和 SQLite 文件。
+浏览器打开 http://localhost:7860。生产环境建议挂载 `/app/backend/uploads`、`/app/backend/vector_index` 和 SQLite 文件。
 
 ### 传统 Linux 部署
 
