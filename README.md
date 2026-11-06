@@ -26,6 +26,10 @@
 | 课程大纲 | AI 根据知识库内容自动生成结构化课程大纲与章节内容 |
 | 在线测验 | 基于知识库自动生成选择题/判断题，支持难度筛选、自动评分、错题本 |
 | 错题复习 | 错题记录关联原文分块、SM-2 间隔复习、AI 基于原文生成错题解析 |
+| 知识图谱 | 章节关系图、章节掌握度雷达图、按答题历史计算掌握度 |
+| 会话管理 | RAG 会话服务端持久化，可切换、加载、删除历史会话 |
+| 检索评估 | Hit@k / MRR 评估面板，支持自定义问题与关键词 |
+| 多媒体入库 | 扫描版 PDF OCR（可选）、FunASR 讲座音频转写（可选） |
 | 人脸登录 | MediaPipe 关键点特征 + OpenCV LBPH 本地人脸识别，支持中文路径 |
 | 语音控制 | 语音指令识别，支持导航到各功能页面 |
 | 考试历史 | 查看历史考试记录、成绩趋势、错题分布统计 |
@@ -62,28 +66,32 @@
 │   │   │   ├── course.py         # 课程大纲/章节/进度模型
 │   │   │   ├── quiz.py           # 测验/考试/错题模型
 │   │   │   ├── face.py           # 人脸编码模型
-│   │   │   └── schedule.py       # 学习计划/作业模型
+│   │   │   ├── schedule.py       # 学习计划/作业模型
+│   │   │   └── chat.py           # RAG 会话/消息模型
 │   │   ├── schemas/              # Pydantic 数据模式
 │   │   ├── routers/              # API 路由
 │   │   │   ├── auth.py           # 注册/登录/人脸认证
 │   │   │   ├── knowledge.py      # 文档上传/管理
 │   │   │   ├── course.py         # 大纲生成/章节/进度
 │   │   │   ├── quiz.py           # 测验生成/提交/评分
-│   │   │   ├── rag.py            # 知识库 RAG 问答
+│   │   │   ├── rag.py            # 知识库 RAG 问答/会话/评估
+│   │   │   ├── learning.py       # 知识图谱与掌握度
 │   │   │   ├── schedule.py       # 学习计划/作业管理
 │   │   │   └── voice.py          # 语音指令解析
 │   │   ├── services/             # 核心服务层
 │   │   │   ├── document_parser.py # 文档解析 (PDF/DOCX/PPTX/TXT/MD)
 │   │   │   ├── quiz_engine.py    # 出题引擎与评分
 │   │   │   ├── llm_service.py    # DeepSeek LLM 调用
-│   │   │   ├── vector_store.py   # faiss 向量检索
-│   │   │   └── face_service.py   # 人脸特征提取与比对
+│   │   │   ├── vector_store.py   # 混合检索/BM25/向量/重排
+│   │   │   ├── face_service.py   # 人脸特征提取与比对
+│   │   │   └── asr_service.py    # FunASR HTTP 转写客户端
 │   │   └── utils/
 │   │       └── auth.py           # JWT 令牌验证依赖
 │   ├── tests/                    # 自动化测试
 │   ├── face_landmarker.task      # MediaPipe 人脸关键点模型
 │   ├── requirements.txt          # 完整依赖（含向量模型）
 │   ├── requirements-deploy.txt   # 部署精简依赖（BM25 模式）
+│   ├── requirements-ocr.txt      # 可选 OCR 依赖
 │   └── requirements-test.txt     # CI 测试依赖
 ├── frontend/
 │   ├── src/
@@ -145,12 +153,31 @@ copy ..\.env.example .env
 | `RETRIEVAL_MODE` | `hybrid` | `hybrid` / `vector` / `bm25` |
 | `RERANK_ENABLED` | `false` | 开启 CrossEncoder 重排，首次加载较慢 |
 | `RAG_MAX_DISTANCE` | `1.6` | 过滤过远检索片段；设为 `0` 关闭绝对距离阈值 |
+| `RAG_QUERY_REWRITE` | `true` | 多轮追问先改写成独立检索问题 |
+| `RATE_LIMIT_ENABLED` | `true` | 接口限流开关 |
+| `RATE_LIMIT_PER_MINUTE` | `120` | 普通 API 每分钟限制 |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | `20` | 登录/注册每分钟限制 |
+| `OCR_ENABLED` | `false` | 扫描 PDF OCR，需安装 `requirements-ocr.txt` |
+| `ASR_ENABLED` | `false` | 启用 FunASR 音频转写 |
+| `FUNASR_URL` | `http://localhost:10095/transcribe` | FunASR HTTP 地址 |
 | `LLM_PROVIDER` | `deepseek` | 设为 `ollama` 使用本地模型 |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI 兼容地址 |
 | `OLLAMA_MODEL` | `qwen2.5:7b` | Ollama 模型名 |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:8000` | 逗号分隔 |
 | `MAX_UPLOAD_MB` | `50` | 上传大小限制 |
 | `FACE_IMAGES_DIR` | `backend/face_images` | 人脸样本目录，已支持中文路径 |
+
+可选能力：
+
+```bash
+# 扫描版 PDF OCR
+pip install -r requirements-ocr.txt
+# .env: OCR_ENABLED=true
+
+# 讲座音频转写：先启动 FunASR HTTP 服务
+# .env: ASR_ENABLED=true
+#       FUNASR_URL=http://localhost:10095/transcribe
+```
 
 ### 3. 启动后端
 
@@ -207,8 +234,13 @@ npm run dev        # 或启动开发服务器
 | `/api/quiz/wrong-questions/review` | GET | 到期复习队列（SM-2） |
 | `/api/quiz/wrong-questions/{id}/review` | POST | 提交复习评价并更新下次复习时间 |
 | `/api/quiz/wrong-questions/{id}/explain` | POST | 基于知识库生成错题解析 |
+| `/api/knowledge/transcribe` | POST | 音频转写并写入知识库（需 FunASR） |
 | `/api/rag/chat` | POST | 知识库 RAG 问答（多轮对话 + 引用来源） |
 | `/api/rag/chat/stream` | POST | RAG 流式问答（SSE） |
+| `/api/rag/evaluate` | POST | 检索评估（Hit@k / MRR） |
+| `/api/rag/sessions` | GET/POST | 会话列表/新建会话 |
+| `/api/rag/sessions/{id}` | GET/DELETE | 会话详情/删除 |
+| `/api/learning/graph/{outline_id}` | GET | 知识图谱与章节掌握度 |
 | `/api/schedule/items` | GET/POST | 学习计划列表/新建任务 |
 | `/api/schedule/items/{id}` | PUT/DELETE | 编辑/删除任务 |
 | `/api/schedule/items/{id}/toggle` | PATCH | 切换完成状态 |
@@ -238,6 +270,8 @@ pytest tests/ -v
 3. 部署完成后访问 `https://<service>.onrender.com`。
 
 免费实例默认使用 `BM25 + SQLite`（`EMBEDDING_ENABLED=false`），不加载向量模型，内存占用低。注意免费实例重启后本地 SQLite 数据会重置，演示前重新上传资料即可。
+
+OCR 与 FunASR 默认关闭：需要时安装 `backend/requirements-ocr.txt`、配置 `OCR_ENABLED=true`，或启动 FunASR 服务并设置 `ASR_ENABLED=true`、`FUNASR_URL`。
 
 ### Docker 部署
 

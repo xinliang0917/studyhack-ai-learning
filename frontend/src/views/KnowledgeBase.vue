@@ -15,6 +15,18 @@
         </div>
       </div>
       <el-alert v-if="uploadError" :title="uploadError" type="error" show-icon :closable="true" @close="uploadError = ''" style="margin-top: 12px" />
+      <div class="audio-row">
+        <el-button :loading="transcribing" @click="triggerAudioUpload">音频转写入库</el-button>
+        <span class="audio-hint">支持 wav/mp3/m4a/flac/ogg，需要后端启用 FunASR</span>
+        <input
+          ref="audioInputRef"
+          type="file"
+          accept=".wav,.mp3,.m4a,.flac,.ogg,.webm"
+          style="display: none"
+          @change="onAudioSelected"
+        />
+      </div>
+      <el-alert v-if="audioError" :title="audioError" type="error" show-icon :closable="true" @close="audioError = ''" style="margin-top: 8px" />
     </el-card>
     <el-card shadow="hover">
       <template #header>
@@ -56,12 +68,22 @@
 import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
 import AppLayout from "../components/AppLayout.vue"
-import { uploadDocument, listDocuments, deleteDocument, refreshIndex, getDocumentContent } from "../api/knowledge"
+import {
+  uploadDocument,
+  listDocuments,
+  deleteDocument,
+  refreshIndex,
+  getDocumentContent,
+  transcribeAudio,
+} from "../api/knowledge"
 
 const docs = ref([])
 const fileInputRef = ref(null)
+const audioInputRef = ref(null)
 const uploading = ref(false)
 const uploadError = ref("")
+const transcribing = ref(false)
+const audioError = ref("")
 const viewDialogVisible = ref(false)
 const viewingDoc = ref({ content: "" })
 const deletingId = ref(null)
@@ -114,6 +136,34 @@ async function uploadFile(file) {
   uploading.value = false
 }
 
+function triggerAudioUpload() {
+  audioInputRef.value?.click()
+}
+
+function onAudioSelected(e) {
+  const files = e.target.files
+  if (files?.length) {
+    transcribeFile(files[0])
+  }
+  e.target.value = ""
+}
+
+async function transcribeFile(file) {
+  transcribing.value = true
+  audioError.value = ""
+  try {
+    const res = await transcribeAudio(file)
+    ElMessage.success(res.data.message || "音频转写完成")
+    const r = await listDocuments()
+    docs.value = r.data
+  } catch (e) {
+    audioError.value = e.response?.data?.detail || "音频转写失败"
+    ElMessage.error(audioError.value)
+  } finally {
+    transcribing.value = false
+  }
+}
+
 async function viewDoc(id) {
   try {
     const res = await getDocumentContent(id)
@@ -145,3 +195,17 @@ async function refreshIndexHandler() {
   }
 }
 </script>
+
+<style scoped>
+.audio-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.audio-hint {
+  color: #909399;
+  font-size: 12px;
+}
+</style>

@@ -15,25 +15,25 @@
     </div>
 
     <el-row :gutter="16">
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div class="stat">
           <div class="num blue">{{ stats.todo || 0 }}</div>
           <div class="label">待完成</div>
         </div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div class="stat">
           <div class="num orange">{{ stats.doing || 0 }}</div>
           <div class="label">进行中</div>
         </div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div class="stat">
           <div class="num green">{{ stats.done || 0 }}</div>
           <div class="label">已完成</div>
         </div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div class="stat">
           <div class="num red">{{ stats.overdue || 0 }}</div>
           <div class="label">已逾期</div>

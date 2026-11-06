@@ -2,25 +2,25 @@
   <AppLayout>
     <h2 style="margin-bottom: 20px; color: #303133">学习概览</h2>
     <el-row :gutter="20">
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div style="text-align: center">
           <div style="font-size: 36px; color: #409eff; font-weight: bold">{{ stats.total || 0 }}</div>
           <div style="color: #909399; margin-top: 4px">总章节</div>
         </div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div style="text-align: center">
           <div style="font-size: 36px; color: #67c23a; font-weight: bold">{{ stats.completed || 0 }}</div>
           <div style="color: #909399; margin-top: 4px">已完成</div>
         </div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div style="text-align: center">
           <div style="font-size: 36px; color: #e6a23c; font-weight: bold">{{ stats.learning || 0 }}</div>
           <div style="color: #909399; margin-top: 4px">学习中</div>
         </div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover"><div style="text-align: center">
           <div style="font-size: 36px; color: #f56c6c; font-weight: bold">{{ stats.completion_rate || 0 }}%</div>
           <div style="color: #909399; margin-top: 4px">完成率</div>

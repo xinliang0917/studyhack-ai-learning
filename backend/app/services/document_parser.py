@@ -1,10 +1,14 @@
-﻿import os
+﻿import io
+import os
 import uuid
 from typing import List
+
+from app.config import settings
 
 class DocumentParser:
     EXTRACT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
     os.makedirs(EXTRACT_DIR, exist_ok=True)
+    _ocr_engine = None
 
     @staticmethod
     def parse(file_path: str, file_type: str) -> List[str]:
@@ -23,13 +27,60 @@ class DocumentParser:
             raise ValueError(f"Unsupported file type: {file_type}")
 
     @staticmethod
+    def _ocr_image_bytes(img_bytes: bytes) -> str:
+        try:
+            import numpy as np
+            from PIL import Image
+            from rapidocr_onnxruntime import RapidOCR
+            if DocumentParser._ocr_engine is None:
+                DocumentParser._ocr_engine = RapidOCR()
+            image = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+            result, _ = DocumentParser._ocr_engine(image)
+            if not result:
+                return ""
+            return "\n".join(str(item[1]) for item in result if len(item) > 1)
+        except Exception:
+            pass
+        try:
+            import pytesseract
+            from PIL import Image
+            return pytesseract.image_to_string(
+                Image.open(io.BytesIO(img_bytes)), lang="chi_sim+eng"
+            )
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _ocr_pdf_page(file_path: str, page_index: int) -> str:
+        try:
+            import fitz
+        except Exception:
+            return ""
+        try:
+            doc = fitz.open(file_path)
+            page = doc[page_index]
+            pix = page.get_pixmap(dpi=200)
+            img_bytes = pix.tobytes("png")
+            doc.close()
+        except Exception:
+            return ""
+        return DocumentParser._ocr_image_bytes(img_bytes)
+
+    @staticmethod
     def _parse_pdf(file_path: str) -> List[str]:
         import pdfplumber
         texts = []
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
+            for index, page in enumerate(pdf.pages):
+                text = page.extract_text() or ""
+                if (
+                    settings.ocr_enabled
+                    and len(text.strip()) < settings.ocr_min_text
+                ):
+                    ocr_text = DocumentParser._ocr_pdf_page(file_path, index)
+                    if ocr_text.strip():
+                        text = f"{text}\n{ocr_text}".strip()
+                if text.strip():
                     texts.append(text)
         return texts if texts else ["[PDF content could not be extracted]"]
 

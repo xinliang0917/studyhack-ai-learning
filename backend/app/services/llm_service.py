@@ -43,6 +43,32 @@ class LLMService:
             return f"[LLM Error: {str(e)}]"
 
     @classmethod
+    def rewrite_query(cls, question: str, history: list) -> str:
+        """Rewrite a follow-up question into a standalone retrieval query."""
+        if not history:
+            return question
+        history_text = "\n".join(
+            f"{item.get('role', 'user')}: {item.get('content', '')}"
+            for item in history[-6:]
+            if item.get("content")
+        )
+        prompt = f"""根据对话历史，把用户最后一句话改写成适合知识库检索的独立问题。
+只返回改写后的问题，不要解释，不要加引号。
+
+对话历史：
+{history_text}
+
+最后一句话：{question}
+独立问题："""
+        result = cls.chat(
+            [{"role": "user", "content": prompt}], temperature=0.0
+        )
+        if result.startswith("[LLM Error"):
+            return question
+        result = result.strip().strip('"').strip("'").splitlines()[0].strip()
+        return result[:300] or question
+
+    @classmethod
     def stream_chat(cls, messages: list, model: Optional[str] = None, temperature: float = 0.7):
         """Yield response chunks for SSE streaming."""
         model = model or cls._default_model()

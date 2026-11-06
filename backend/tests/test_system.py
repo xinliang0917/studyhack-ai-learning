@@ -4,6 +4,7 @@ os.environ["USE_SQLITE"] = "true"
 os.environ["DEEPSEEK_API_KEY"] = "test-key"
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["SQLITE_PATH"] = "test_system_temp.db"
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

@@ -18,3 +18,9 @@ export const getDocumentContent = (id) => api.get(`/knowledge/documents/${id}/co
 
 export const getDocumentChunk = (id, chunkIndex) =>
   api.get(`/knowledge/documents/${id}/chunks/${chunkIndex}`)
+
+export const transcribeAudio = (file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post('/knowledge/transcribe', form)
+}

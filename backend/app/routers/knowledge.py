@@ -6,6 +6,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.knowledge import KnowledgeDoc, KnowledgeChunk
 from app.schemas.knowledge import KnowledgeDocResponse, UploadResponse
+from app.services.asr_service import asr_service
 from app.services.document_parser import DocumentParser
 from app.services.vector_store import vector_store
 from app.utils.auth import get_current_user
@@ -13,6 +14,7 @@ from app.utils.auth import get_current_user
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 SUPPORTED_TYPES = {"pdf", "docx", "txt", "md", "markdown", "pptx"}
+AUDIO_TYPES = {"wav", "mp3", "m4a", "flac", "ogg", "webm"}
 
 
 def _collect_chunks(db: Session) -> list:
@@ -30,6 +32,31 @@ def _collect_chunks(db: Session) -> list:
         }
         for chunk, filename, owner_id in rows
     ]
+
+
+def _create_document(db, user_id, filename, ext, content, file_path, texts):
+    chunks = vector_store.get_chunks_smart(texts)
+    doc = KnowledgeDoc(
+        user_id=user_id,
+        filename=filename,
+        file_type=ext,
+        file_size=len(content),
+        chunk_count=len(chunks),
+        file_path=file_path,
+    )
+    db.add(doc)
+    db.flush()
+    for i, chunk in enumerate(chunks):
+        db.add(KnowledgeChunk(doc_id=doc.id, chunk_index=i, content=chunk["content"]))
+    db.commit()
+    all_chunks = _collect_chunks(db)
+    if all_chunks:
+        try:
+            vector_store.build_index(all_chunks)
+        except Exception as e:
+            print(f"Index build after upload: {e}")
+    return doc
+
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
@@ -52,23 +79,48 @@ async def upload_document(
     except Exception as exc:
         DocumentParser.delete_file(file_path)
         raise HTTPException(status_code=400, detail=f"文档解析失败：{exc}") from exc
-    chunks = vector_store.get_chunks_smart(texts)
-    doc = KnowledgeDoc(
-        user_id=user_id, filename=file.filename, file_type=ext,
-        file_size=len(content), chunk_count=len(chunks), file_path=file_path,
+    doc = _create_document(
+        db, user_id, file.filename, ext, content, file_path, texts
     )
-    db.add(doc)
-    db.flush()
-    for i, chunk in enumerate(chunks):
-        db.add(KnowledgeChunk(doc_id=doc.id, chunk_index=i, content=chunk["content"]))
-    db.commit()
-    all_chunks = _collect_chunks(db)
-    if all_chunks:
-        try:
-            vector_store.build_index(all_chunks)
-        except Exception as e:
-            print(f"Index build after upload: {e}")
     return UploadResponse(id=doc.id, filename=file.filename, message="Document uploaded and indexed")
+
+
+@router.post("/transcribe", response_model=UploadResponse)
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    if not settings.asr_enabled:
+        raise HTTPException(status_code=503, detail="ASR 未启用，请先配置 FunASR")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in AUDIO_TYPES:
+        raise HTTPException(status_code=400, detail=f"不支持的音频格式：{ext}")
+    content = await file.read()
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件超过 {settings.max_upload_mb}MB 限制",
+        )
+    try:
+        transcript = asr_service.transcribe(content, file.filename)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if not transcript.strip():
+        raise HTTPException(status_code=400, detail="未识别到语音内容")
+
+    text_name = f"{_os.path.splitext(file.filename)[0] or 'audio'}.txt"
+    text_bytes = transcript.encode("utf-8")
+    file_path = DocumentParser.save_upload(text_bytes, text_name, user_id)
+    doc = _create_document(
+        db, user_id, text_name, "txt", text_bytes, file_path, [transcript]
+    )
+    return UploadResponse(
+        id=doc.id,
+        filename=text_name,
+        message=f"音频已转写入库，识别 {len(transcript)} 字",
+    )
+
 
 @router.get("/documents", response_model=List[KnowledgeDocResponse])
 def list_documents(

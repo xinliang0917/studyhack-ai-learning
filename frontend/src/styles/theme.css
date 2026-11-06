@@ -1,0 +1,79 @@
+html.dark body {
+  background: var(--el-bg-color-page);
+  color: var(--el-text-color-primary);
+}
+
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark .page-head h2,
+html.dark .rag-header h2,
+html.dark .welcome h3 {
+  color: var(--el-text-color-primary) !important;
+}
+
+html.dark .page-head p,
+html.dark .rag-header p,
+html.dark .welcome p,
+html.dark .eval-tip {
+  color: var(--el-text-color-secondary) !important;
+}
+
+html.dark .el-card {
+  background: var(--el-bg-color-overlay);
+  border-color: var(--el-border-color);
+}
+
+html.dark .el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-border-color: var(--el-border-color-lighter);
+}
+
+html.dark .bubble {
+  background: var(--el-bg-color-overlay) !important;
+  border-color: var(--el-border-color) !important;
+  color: var(--el-text-color-primary) !important;
+}
+
+html.dark .msg-row.user .bubble {
+  background: var(--el-color-primary) !important;
+  color: #fff !important;
+}
+
+html.dark .bubble.markdown code,
+html.dark .bubble.markdown pre {
+  background: var(--el-fill-color-light) !important;
+}
+
+html.dark .source,
+html.dark .explain-source {
+  background: var(--el-fill-color-light) !important;
+  border-color: var(--el-border-color) !important;
+  color: var(--el-text-color-regular) !important;
+}
+
+html.dark .source-content,
+html.dark .explain-source,
+html.dark .task-meta,
+html.dark .task-course,
+html.dark .next-review,
+html.dark .stat .label,
+html.dark .muted {
+  color: var(--el-text-color-secondary) !important;
+}
+
+html.dark .source-dialog-content,
+html.dark .explain-answer {
+  color: var(--el-text-color-primary) !important;
+}
+
+html.dark .task-row {
+  border-color: var(--el-border-color-lighter) !important;
+}
+
+html.dark .chapter-bar-track {
+  background: var(--el-fill-color) !important;
+}

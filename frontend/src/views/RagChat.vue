@@ -6,7 +6,28 @@
           <h2>知识库 AI 问答</h2>
           <p>基于已上传课程资料的 RAG 检索增强问答，支持流式回答与引用溯源。</p>
         </div>
-        <el-button :disabled="!messages.length || loading" @click="clearChat">清空对话</el-button>
+        <div class="rag-actions">
+          <el-select
+            v-model="sessionId"
+            clearable
+            placeholder="选择会话"
+            style="width: 180px"
+            :loading="sessionLoading"
+            @change="onSessionChange"
+            @clear="newChat"
+          >
+            <el-option
+              v-for="item in sessions"
+              :key="item.id"
+              :label="`${item.title} (${item.message_count})`"
+              :value="item.id"
+            />
+          </el-select>
+          <el-button @click="newChat">新对话</el-button>
+          <el-button v-if="sessionId" type="danger" plain @click="removeSession">删除</el-button>
+          <el-button @click="openEval">评估</el-button>
+          <el-button :disabled="!messages.length || loading" @click="clearChat">清空</el-button>
+        </div>
       </div>
 
       <el-card shadow="hover" class="chat-card">
@@ -65,7 +86,7 @@
             :rows="2"
             resize="none"
             placeholder="输入问题，Enter 发送，Shift + Enter 换行"
-            :disabled="loading"
+            :disabled="loading || sessionLoading"
             @keydown="onKeydown"
           />
           <el-button type="primary" :loading="loading" :disabled="!input.trim()" @click="send()">发送</el-button>
@@ -92,18 +113,75 @@
         <el-button @click="sourceDialog = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="evalDialog" title="RAG 检索评估" width="720px" top="6vh">
+      <p class="eval-tip">每行一条，格式：问题 | 关键词1,关键词2</p>
+      <el-input
+        v-model="evalInput"
+        type="textarea"
+        :rows="7"
+        placeholder="牛顿第二定律是什么 | F=ma,加速度&#10;光合作用的场所 | 叶绿体"
+      />
+      <div v-if="evalResult" class="eval-result">
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-card shadow="never"><div class="eval-metric">
+              <div class="eval-value">{{ (evalResult.summary.hit_rate * 100).toFixed(1) }}%</div>
+              <div class="eval-label">Hit@{{ evalResult.summary.k }}</div>
+            </div></el-card>
+          </el-col>
+          <el-col :span="8">
+            <el-card shadow="never"><div class="eval-metric">
+              <div class="eval-value">{{ evalResult.summary.mrr.toFixed(3) }}</div>
+              <div class="eval-label">MRR</div>
+            </div></el-card>
+          </el-col>
+          <el-col :span="8">
+            <el-card shadow="never"><div class="eval-metric">
+              <div class="eval-value">{{ evalResult.summary.hits }}/{{ evalResult.summary.cases }}</div>
+              <div class="eval-label">命中用例</div>
+            </div></el-card>
+          </el-col>
+        </el-row>
+        <el-table :data="evalResult.results" size="small" style="margin-top: 12px">
+          <el-table-column prop="question" label="问题" min-width="180" />
+          <el-table-column label="命中" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.hit ? 'success' : 'danger'" size="small">{{ row.hit ? '是' : '否' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="rank" label="排名" width="70" />
+          <el-table-column label="Top 来源" min-width="220">
+            <template #default="{ row }">
+              {{ row.top_sources && row.top_sources[0] ? row.top_sources[0].snippet : '-' }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="evalDialog = false">关闭</el-button>
+        <el-button type="primary" :loading="evalLoading" @click="runEval">开始评估</el-button>
+      </template>
+    </el-dialog>
   </AppLayout>
 </template>
 
 <script setup>
-import { nextTick, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { nextTick, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import renderMathInElement from 'katex/contrib/auto-render'
 import 'katex/dist/katex.min.css'
 import AppLayout from '../components/AppLayout.vue'
-import { chatRag } from '../api/rag'
+import {
+  chatRag,
+  createSession,
+  deleteSession,
+  evaluateRag,
+  getSession,
+  listSessions,
+} from '../api/rag'
 import { getDocumentContent } from '../api/knowledge'
 
 marked.setOptions({ breaks: true, gfm: true })
@@ -117,6 +195,13 @@ const sourceDialog = ref(false)
 const sourceLoading = ref(false)
 const sourceFull = ref(false)
 const sourceDoc = ref({})
+const sessions = ref([])
+const sessionId = ref(null)
+const sessionLoading = ref(false)
+const evalDialog = ref(false)
+const evalInput = ref('')
+const evalLoading = ref(false)
+const evalResult = ref(null)
 
 const suggestions = [
   '请总结知识库的核心内容',
@@ -206,6 +291,15 @@ async function send(text) {
   loading.value = true
   scrollToBottom()
 
+  let activeSessionId = sessionId.value
+  if (!activeSessionId) {
+    try {
+      activeSessionId = await ensureSession(question)
+    } catch (e) {
+      activeSessionId = null
+    }
+  }
+
   let streamed = false
   try {
     const token = localStorage.getItem('token')
@@ -215,7 +309,7 @@ async function send(text) {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ question, history, k: 5 }),
+      body: JSON.stringify({ question, history, k: 5, session_id: activeSessionId }),
     })
     if (!resp.ok || !resp.body) {
       throw new Error(`HTTP ${resp.status}`)
@@ -250,7 +344,7 @@ async function send(text) {
   } catch (e) {
     if (!streamed) {
       try {
-        const res = await chatRag({ question, history, k: 5 })
+        const res = await chatRag({ question, history, k: 5, session_id: activeSessionId })
         assistant.content = res.data.answer
         assistant.sources = res.data.sources || []
         assistant.html = renderMarkdown(assistant.content)
@@ -266,6 +360,9 @@ async function send(text) {
   } finally {
     assistant.streaming = false
     loading.value = false
+    if (activeSessionId) {
+      await loadSessions()
+    }
     scrollToBottom()
   }
 }
@@ -291,9 +388,122 @@ async function loadFullDoc() {
 }
 
 function clearChat() {
-  messages.value = []
-  ElMessage.success('已清空对话')
+  newChat()
+  ElMessage.success('已开始新对话')
 }
+
+async function loadSessions() {
+  try {
+    const res = await listSessions()
+    sessions.value = res.data || []
+  } catch (e) { /* ignore */ }
+}
+
+async function selectSession(id) {
+  if (!id) {
+    newChat()
+    return
+  }
+  sessionId.value = id
+  sessionLoading.value = true
+  try {
+    const res = await getSession(id)
+    messages.value = (res.data.messages || []).map(message => ({
+      role: message.role,
+      content: message.content,
+      sources: message.sources || [],
+      html: message.role === 'assistant' ? renderMarkdown(message.content) : undefined,
+    }))
+    await renderMath()
+    scrollToBottom()
+  } catch (e) {
+    ElMessage.error('加载会话失败')
+  } finally {
+    sessionLoading.value = false
+  }
+}
+
+function onSessionChange(id) {
+  if (id) selectSession(id)
+  else newChat()
+}
+
+function newChat() {
+  sessionId.value = null
+  messages.value = []
+  input.value = ''
+}
+
+async function removeSession() {
+  if (!sessionId.value) return
+  try {
+    await ElMessageBox.confirm('确定删除当前会话吗？', '确认删除', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch (e) {
+    return
+  }
+  try {
+    await deleteSession(sessionId.value)
+    ElMessage.success('会话已删除')
+    newChat()
+    await loadSessions()
+  } catch (e) {
+    ElMessage.error('删除失败')
+  }
+}
+
+async function ensureSession(question) {
+  if (sessionId.value) return sessionId.value
+  const res = await createSession(question.slice(0, 40))
+  sessionId.value = res.data.id
+  await loadSessions()
+  return sessionId.value
+}
+
+function openEval() {
+  evalDialog.value = true
+}
+
+async function runEval() {
+  const cases = evalInput.value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const parts = line.split('|')
+      return {
+        question: (parts[0] || '').trim(),
+        expected_keywords: (parts[1] || '')
+          .split(/[,，]/)
+          .map(item => item.trim())
+          .filter(Boolean),
+      }
+    })
+    .filter(item => item.question && item.expected_keywords.length)
+  if (!cases.length) {
+    ElMessage.warning('请按“问题 | 关键词1,关键词2”格式填写')
+    return
+  }
+  evalLoading.value = true
+  try {
+    const res = await evaluateRag(cases, 5)
+    evalResult.value = res.data
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '评估失败')
+  } finally {
+    evalLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadSessions()
+  if (sessions.value.length) {
+    await selectSession(sessions.value[0].id)
+  }
+})
 </script>
 
 <style scoped>
@@ -316,6 +526,34 @@ function clearChat() {
   margin: 4px 0 0;
   color: #909399;
   font-size: 13px;
+}
+.rag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.eval-tip {
+  color: #909399;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.eval-result {
+  margin-top: 16px;
+}
+.eval-metric {
+  text-align: center;
+}
+.eval-value {
+  font-size: 26px;
+  font-weight: bold;
+  color: #409eff;
+}
+.eval-label {
+  color: #909399;
+  font-size: 12px;
+  margin-top: 4px;
 }
 .chat-card {
   flex: 1;
@@ -519,5 +757,27 @@ function clearChat() {
 }
 .composer .el-button {
   height: 54px;
+}
+@media (max-width: 768px) {
+  .rag-page {
+    height: calc(100vh - 70px);
+  }
+  .rag-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .rag-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .rag-actions .el-select {
+    width: 150px !important;
+  }
+  .chat-body {
+    padding: 12px;
+  }
+  .bubble-wrap {
+    max-width: calc(100% - 50px);
+  }
 }
 </style>

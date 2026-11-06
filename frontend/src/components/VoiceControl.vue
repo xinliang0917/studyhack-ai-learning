@@ -48,6 +48,8 @@ const commandMap = {
   '课表': '/schedule',
   '作业': '/schedule',
   '任务': '/schedule',
+  '知识图谱': '/knowledge-graph',
+  '掌握度': '/knowledge-graph',
   '课程大纲': '/course',
   '打开课程': '/course',
   '开始测验': '/quiz',
@@ -217,6 +219,10 @@ function readCurrentPage() {
   }
   if (path === '/schedule') {
     speak('学习计划页面')
+    return
+  }
+  if (path === '/knowledge-graph') {
+    speak('知识图谱与掌握度页面')
     return
   }
   // Generic fallback - try to read page title

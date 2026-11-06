@@ -11,7 +11,7 @@ class CorrectRequest(BaseModel):
 @router.post("/interpret")
 def interpret_command(data: CorrectRequest):
     """Use DeepSeek to infer user intent from (possibly misrecognized) voice command."""
-    commands = ["首页", "知识库", "AI问答", "学习计划", "课表", "作业", "课程大纲", "在线测验", "错题本", "设置", "返回", "上一页", "下一页"]
+    commands = ["首页", "知识库", "AI问答", "学习计划", "课表", "作业", "知识图谱", "课程大纲", "在线测验", "错题本", "设置", "返回", "上一页", "下一页"]
     prompt = f"""用户通过语音识别说了一句话，识别结果可能不准确。请判断用户最可能想执行以下哪个操作：
 {', '.join(commands)}
 

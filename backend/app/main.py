@@ -1,10 +1,14 @@
 ﻿import os
-from fastapi import FastAPI
+import time
+from collections import defaultdict, deque
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, knowledge, course, quiz, voice, rag, schedule
+from app.routers import auth, knowledge, course, quiz, voice, rag, schedule, learning
 
 app = FastAPI(title="AI Learning Assistant", version="1.0.0")
 
@@ -17,6 +21,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_rate_buckets = defaultdict(deque)
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if not settings.rate_limit_enabled:
+        return await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/") or path == "/api/health":
+        return await call_next(request)
+
+    forwarded = request.headers.get("x-forwarded-for", "")
+    client_ip = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else (request.client.host if request.client else "unknown")
+    )
+    is_auth = path.startswith("/api/auth/")
+    limit = (
+        settings.auth_rate_limit_per_minute
+        if is_auth
+        else settings.rate_limit_per_minute
+    )
+    key = (client_ip, "auth" if is_auth else "api")
+    now = time.monotonic()
+    bucket = _rate_buckets[key]
+    while bucket and now - bucket[0] > 60:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "请求过于频繁，请稍后再试"},
+            headers={"Retry-After": "60"},
+        )
+    bucket.append(now)
+    return await call_next(request)
+
 # Include routers
 app.include_router(auth.router)
 app.include_router(knowledge.router)
@@ -25,6 +66,7 @@ app.include_router(quiz.router)
 app.include_router(voice.router)
 app.include_router(rag.router)
 app.include_router(schedule.router)
+app.include_router(learning.router)
 
 @app.on_event("startup")
 def on_startup():

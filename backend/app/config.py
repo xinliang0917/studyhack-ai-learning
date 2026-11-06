@@ -31,7 +31,16 @@ class Settings:
         self.rerank_enabled = os.getenv("RERANK_ENABLED", "false").lower() == "true"
         self.rerank_model = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
         self.rag_max_distance = float(os.getenv("RAG_MAX_DISTANCE", "1.6"))
+        self.rag_query_rewrite = os.getenv("RAG_QUERY_REWRITE", "true").lower() == "true"
         self.max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "50"))
+        self.rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
+        self.rate_limit_per_minute = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
+        self.auth_rate_limit_per_minute = int(os.getenv("AUTH_RATE_LIMIT_PER_MINUTE", "20"))
+        self.ocr_enabled = os.getenv("OCR_ENABLED", "false").lower() == "true"
+        self.ocr_min_text = int(os.getenv("OCR_MIN_TEXT", "20"))
+        self.asr_enabled = os.getenv("ASR_ENABLED", "false").lower() == "true"
+        self.funasr_url = os.getenv("FUNASR_URL", "http://localhost:10095/transcribe")
+        self.asr_timeout = int(os.getenv("ASR_TIMEOUT", "120"))
         self.cors_origins = os.getenv(
             "CORS_ORIGINS", "http://localhost:5173,http://localhost:8000"
         )
