@@ -41,6 +41,7 @@ class Settings:
         self.asr_enabled = os.getenv("ASR_ENABLED", "false").lower() == "true"
         self.funasr_url = os.getenv("FUNASR_URL", "http://localhost:10095/transcribe")
         self.asr_timeout = int(os.getenv("ASR_TIMEOUT", "120"))
+        self.seed_demo = os.getenv("SEED_DEMO", "false").lower() == "true"
         self.cors_origins = os.getenv(
             "CORS_ORIGINS", "http://localhost:5173,http://localhost:8000"
         )

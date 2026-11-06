@@ -2,9 +2,9 @@
 import time
 from collections import defaultdict, deque
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import init_db
@@ -71,6 +71,9 @@ app.include_router(learning.router)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    if settings.seed_demo:
+        from app.services.demo_seed import seed_demo
+        seed_demo()
 
 @app.get("/api/health")
 def health():
@@ -81,4 +84,19 @@ frontend_dist = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist"
 )
 if os.path.exists(frontend_dist):
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    assets_dir = os.path.join(frontend_dist, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        safe_path = os.path.normpath(full_path).lstrip("\\/")
+        if safe_path.startswith("..") or safe_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = os.path.join(frontend_dist, safe_path)
+        if safe_path and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Frontend build not found")

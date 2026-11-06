@@ -30,7 +30,11 @@
           <el-button type="primary" style="width: 100%; margin-top: 8px" @click="startFaceLogin" :loading="faceLoading">人脸登录</el-button>
         </el-tab-pane>
       </el-tabs>
-      <div style="text-align: center; margin-top: 16px">
+      <div class="demo-hint">
+        <span>演示账号：<strong>demo</strong> / <strong>demo123456</strong></span>
+        <el-button text type="primary" size="small" @click="fillDemo">一键填入</el-button>
+      </div>
+      <div style="text-align: center; margin-top: 8px">
         <span style="color: #909399; font-size: 14px">还没有账号？</span>
         <el-button text type="primary" @click="router.push('/register')">去注册</el-button>
       </div>
@@ -55,6 +59,11 @@ const faceUsername = ref("")
 let faceBase64 = ""
 const form = reactive({ username: "", password: "" })
 const rules = { username: [{ required: true, message: "请输入用户名" }], password: [{ required: true, message: "请输入密码" }] }
+
+function fillDemo() {
+  form.username = "demo"
+  form.password = "demo123456"
+}
 
 async function handleLogin() {
   loading.value = true
@@ -177,6 +186,19 @@ async function startFaceLogin() {
   font-size: 15px;
   margin: 0 0 16px 0;
   font-weight: 400;
+}
+
+.demo-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-top: 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  color: #909399;
+  font-size: 12px;
 }
 
 .login-tabs :deep(.el-tabs__item) {
