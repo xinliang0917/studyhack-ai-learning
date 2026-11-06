@@ -307,7 +307,7 @@ async function send(text) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(token ? { 'X-Auth-Token': token } : {}),
       },
       body: JSON.stringify({ question, history, k: 5, session_id: activeSessionId }),
     })
