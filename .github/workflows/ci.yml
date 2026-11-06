@@ -22,7 +22,7 @@ jobs:
       JWT_SECRET: test-secret
       EMBEDDING_ENABLED: "false"
       RATE_LIMIT_ENABLED: "false"
-      VECTOR_DIR: ${{ runner.temp }}/vector
+      VECTOR_DIR: /tmp/vector_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
