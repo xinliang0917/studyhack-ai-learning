@@ -128,7 +128,7 @@ async function handleRegister() {
 function handleFaceCapture(base64) {
   faceBase64 = base64
   faceCaptured.value = true
-  ElMessage.success("人脸采集成功，点击「注册人脸」完成注册")
+  ElMessage.success("照片已采集，点击「注册人脸」进行人脸校验")
 }
 
 async function startFaceRegister() {
@@ -240,13 +240,17 @@ function skipFace() {
   font-weight: 400;
 }
 
-.register-tabs :deep(.el-tabs__item) {
-  font-size: 14px;
-  padding: 0 16px;
+.register-card :deep(.el-steps--simple) {
+  padding: 8px 10px;
 }
 
-.register-tabs :deep(.el-tabs__item.is-active) {
-  font-weight: 600;
+.register-card :deep(.el-step__title) {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.register-card :deep(.el-step__head) {
+  flex-shrink: 0;
 }
 
 :deep(.el-card__body) {

@@ -16,6 +16,15 @@ class FaceService:
         self.cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
+        self.alt_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml"
+        )
+        self.cascades = [
+            cascade for cascade in (self.cascade, self.alt_cascade)
+            if cascade is not None and not cascade.empty()
+        ]
+        if not self.cascades:
+            print("OpenCV face cascades failed to load")
         self._try_load_model()
         default_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -64,6 +73,44 @@ class FaceService:
         except Exception as e:
             print(f"MediaPipe init failed: {e}")
 
+    def _detect_face_box(self, gray):
+        if gray is None or gray.size == 0:
+            return None
+        variants = [gray]
+        try:
+            variants.append(cv2.equalizeHist(gray))
+        except Exception:
+            pass
+        for image in variants:
+            for cascade in self.cascades:
+                for scale, neighbors, min_size in (
+                    (1.05, 3, (60, 60)),
+                    (1.1, 4, (80, 80)),
+                    (1.1, 6, (100, 100)),
+                ):
+                    faces = cascade.detectMultiScale(
+                        image,
+                        scaleFactor=scale,
+                        minNeighbors=neighbors,
+                        minSize=min_size,
+                    )
+                    if len(faces):
+                        return max(faces, key=lambda box: box[2] * box[3])
+        try:
+            flipped = cv2.flip(gray, 1)
+            for cascade in self.cascades:
+                faces = cascade.detectMultiScale(
+                    flipped,
+                    scaleFactor=1.05,
+                    minNeighbors=3,
+                    minSize=(60, 60),
+                )
+                if len(faces):
+                    return max(faces, key=lambda box: box[2] * box[3])
+        except Exception:
+            pass
+        return None
+
     def extract_features(self, image_data):
         if self.model_loaded:
             f = self._mp_extract(image_data)
@@ -105,9 +152,10 @@ class FaceService:
                     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
             else:
                 gray = arr
-            faces = self.cascade.detectMultiScale(gray, 1.1, 6, minSize=(100, 100))
-            if len(faces) == 0: return None
-            x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
+            box = self._detect_face_box(gray)
+            if box is None:
+                return None
+            x, y, w, h = box
             roi = gray[y:y+h, x:x+w]
             resized = cv2.resize(roi, (80, 80))
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
@@ -163,10 +211,13 @@ class FaceService:
         try:
             arr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                print("save_face_sample: image decode failed")
+                return False
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = self.cascade.detectMultiScale(gray, 1.1, 6, minSize=(100, 100))
-            if len(faces) > 0:
-                x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
+            box = self._detect_face_box(gray)
+            if box is not None:
+                x, y, w, h = box
                 face_roi = gray[y:y+h, x:x+w]
             elif self.model_loaded:
                 # MediaPipe fallback for face detection
@@ -249,10 +300,12 @@ class FaceService:
         try:
             arr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                return None, None
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = self.cascade.detectMultiScale(gray, 1.1, 6, minSize=(100, 100))
-            if len(faces) > 0:
-                x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
+            box = self._detect_face_box(gray)
+            if box is not None:
+                x, y, w, h = box
                 face_roi = gray[y:y+h, x:x+w]
             elif self.model_loaded:
                 try:
