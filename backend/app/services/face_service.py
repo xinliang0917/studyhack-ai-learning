@@ -181,26 +181,14 @@ class FaceService:
             if box is None:
                 return None
             x, y, w, h = box
-            roi = gray[y:y+h, x:x+w]
-            resized = cv2.resize(roi, (80, 80))
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
-            clahe_img = clahe.apply(resized)
-            # LBP-like features
-            rows, cols = clahe_img.shape
-            centers = clahe_img[1:-1, 1:-1].astype(np.float32)
-            offsets = [(-1,-1),(-1,0),(-1,1),(0,1),(1,1),(1,0),(1,-1),(0,-1)]
-            for k, (dr, dc) in enumerate(offsets):
-                nb = clahe_img[1+dr:rows-1+dr, 1+dc:cols-1+dc].astype(np.float32)
-                if k == 0:
-                    lbp = (nb > centers).astype(np.float32).reshape(-1, 1)
-                else:
-                    lbp = np.concatenate([lbp, (nb > centers).astype(np.float32).reshape(-1, 1)], axis=1)
-            gx = cv2.Sobel(clahe_img, cv2.CV_32F, 1, 0, ksize=3)
-            gy = cv2.Sobel(clahe_img, cv2.CV_32F, 0, 1, ksize=3)
-            mag = np.sqrt(gx**2 + gy**2)[2:-2, 2:-2].flatten()
-            angle = np.arctan2(gy[2:-2, 2:-2], gx[2:-2, 2:-2]).flatten()
-            feat = np.concatenate([lbp.flatten()[::2], mag[::4], angle[::4]])
-            return (feat - np.mean(feat)) / (np.std(feat) + 1e-8)
+            roi = cv2.resize(gray[y:y+h, x:x+w], (64, 64))
+            roi = cv2.equalizeHist(roi)
+            descriptor = cv2.HOGDescriptor(
+                (64, 64), (16, 16), (8, 8), (8, 8), 9
+            )
+            feature = descriptor.compute(roi).flatten().astype(np.float32)
+            norm = float(np.sqrt(np.sum(feature * feature)))
+            return feature / (norm + 1e-8)
         except Exception as e:
             print(f"CV extraction error: {e}")
             return None
@@ -217,9 +205,9 @@ class FaceService:
         if ratio < 0.95:
             return False, 99.0
         n = min(l1, l2)
-        dist = np.linalg.norm(a1[:n] - a2[:n])
-        nd = dist / (n ** 0.5)
-        return nd < threshold, float(nd)
+        diff = a1[:n] - a2[:n]
+        dist = float(np.sqrt(np.sum(diff * diff)))
+        return dist < threshold, dist
 
     def _load_recognizer(self):
         model_path = os.path.join(self.face_images_dir, "lbph_model.yml")

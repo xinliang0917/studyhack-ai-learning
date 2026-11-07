@@ -10,12 +10,7 @@
         <p class="card-subtitle">用户注册</p>
       </div>
 
-      <el-steps :active="step" simple style="margin-bottom: 20px">
-        <el-step title="创建账号" icon="User" />
-        <el-step title="注册人脸（可选）" icon="Picture" />
-      </el-steps>
-
-      <div v-if="step === 0">
+      <div>
         <el-form ref="formRef" :model="form" :rules="rules" label-width="0">
           <el-form-item prop="username">
             <el-input v-model="form.username" placeholder="请输入用户名" prefix-icon="User" />
@@ -32,19 +27,6 @@
         </el-form>
       </div>
 
-      <div v-if="step === 1">
-        <el-alert title="账号创建成功！现在可以注册人脸，以后就能用人脸登录了" type="success" :closable="false" show-icon style="margin-bottom: 16px" />
-        <div style="text-align: center; margin-bottom: 12px">
-          <el-tag type="success">当前用户：{{ registeredUsername }}</el-tag>
-        </div>
-        <FaceCamera @captured="handleFaceCapture" />
-        <el-button type="primary" style="width: 100%; margin-top: 12px" @click="startFaceRegister" :loading="faceLoading" :disabled="!faceCaptured">
-          {{ faceCaptured ? "注册人脸" : "请先采集人脸" }}
-        </el-button>
-        <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center">
-          <el-button @click="skipFace">跳过，去首页</el-button>
-        </div>
-      </div>
 
       <div style="text-align: center; margin-top: 16px">
         <span style="color: #909399; font-size: 14px">已有账号？</span>
@@ -58,20 +40,14 @@
 import { ref, reactive } from "vue"
 import { useRouter } from "vue-router"
 import { ElMessage } from "element-plus"
-import { register, registerFace } from "../api/auth"
+import { register } from "../api/auth"
 import { useAppStore } from "../store"
 import { setToken } from "../utils/token"
-import FaceCamera from "../components/FaceCamera.vue"
 
 const router = useRouter()
 const store = useAppStore()
 const formRef = ref(null)
-const step = ref(0)
 const loading = ref(false)
-const faceLoading = ref(false)
-const registeredUsername = ref("")
-const faceCaptured = ref(false)
-let faceBase64 = ""
 
 const form = reactive({ username: "", password: "", confirmPassword: "" })
 
@@ -107,9 +83,8 @@ async function handleRegister() {
     const res = await register(form.username, form.password)
     setToken(res.data.access_token)
     store.setUser({ username: res.data.username })
-    registeredUsername.value = form.username
     ElMessage.success("账号创建成功！")
-    step.value = 1
+    router.replace("/dashboard")
   } catch (e) {
     const msg = e.response?.data?.detail
     if (msg === "Username already exists") {
@@ -238,19 +213,6 @@ function skipFace() {
   font-size: 15px;
   margin: 0 0 16px 0;
   font-weight: 400;
-}
-
-.register-card :deep(.el-steps--simple) {
-  padding: 8px 10px;
-}
-
-.register-card :deep(.el-step__title) {
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.register-card :deep(.el-step__head) {
-  flex-shrink: 0;
 }
 
 :deep(.el-card__body) {

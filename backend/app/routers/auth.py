@@ -107,36 +107,47 @@ def login_face(data: FaceLogin, db: Session = Depends(get_db)):
         f"expected={user.id} threshold={settings.face_match_threshold}"
     )
 
-    matched = (
+    lbph_ok = (
         predicted_id == user.id
         and confidence is not None
         and confidence < settings.face_match_threshold
     )
-
-    if not matched and face_enc.face_data:
+    feature_ok = False
+    distance = None
+    feature_version_mismatch = False
+    if face_enc.face_data:
         live_features = face_service.extract_features(image_bytes)
         if live_features is not None:
             try:
                 stored_features = pickle.loads(face_enc.face_data)
-                ok, distance = face_service.compare_faces(
-                    stored_features,
-                    live_features,
-                    threshold=settings.face_feature_threshold,
-                )
-                print(
-                    f"face login fallback: distance={distance:.4f} "
-                    f"threshold={settings.face_feature_threshold} ok={ok}"
-                )
-                matched = ok
+                if len(stored_features) != len(live_features):
+                    feature_version_mismatch = True
+                    print(
+                        "face login: stored feature version changed, "
+                        "please register the face again"
+                    )
+                else:
+                    feature_ok, distance = face_service.compare_faces(
+                        stored_features,
+                        live_features,
+                        threshold=settings.face_feature_threshold,
+                    )
+                    print(
+                        f"face login feature: distance={distance:.4f} "
+                        f"threshold={settings.face_feature_threshold} ok={feature_ok}"
+                    )
             except Exception as exc:
-                print(f"face login fallback error: {exc}")
+                print(f"face login feature error: {exc}")
+
+    matched = lbph_ok and feature_ok
 
     if not matched:
-        score = f"（置信度 {confidence:.1f}）" if confidence is not None else ""
-        raise HTTPException(
-            status_code=400,
-            detail=f"人脸不匹配{score}，请调整光线、正对镜头后重试，或使用密码登录",
-        )
+        if feature_version_mismatch:
+            detail = "人脸特征版本已更新，请重新录入人脸后再登录"
+        else:
+            score = f"（置信度 {confidence:.1f}）" if confidence is not None else ""
+            detail = f"人脸不匹配{score}，请调整光线、正对镜头后重试，或使用密码登录"
+        raise HTTPException(status_code=400, detail=detail)
 
     token = create_token(user.id, user.username)
     return TokenResponse(access_token=token, username=user.username)
