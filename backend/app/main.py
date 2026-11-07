@@ -1,4 +1,4 @@
-﻿import os
+import os
 import time
 from collections import defaultdict, deque
 
@@ -83,6 +83,7 @@ def health():
     return {
         "status": "ok",
         "message": "AI Learning Assistant API is running",
+        "data_dir": settings.data_dir,
         "retrieval_mode": settings.retrieval_mode,
         "index_chunks": len(chunks),
         "index_ready": bool(chunks),

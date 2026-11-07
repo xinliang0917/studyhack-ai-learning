@@ -3,6 +3,33 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { getMe } from './api/auth'
+import { clearToken } from './utils/token'
+
+const router = useRouter()
+
+onMounted(async () => {
+  await router.isReady()
+  const token = localStorage.getItem('token')
+  const path = router.currentRoute.value.path
+  const publicPaths = ['/login', '/register']
+  if (!token) {
+    if (!publicPaths.includes(path)) router.replace('/login')
+    return
+  }
+  try {
+    const res = await getMe()
+    localStorage.setItem('user', JSON.stringify({ username: res.data.username }))
+  } catch (e) {
+    if (e.response?.status === 401) {
+      clearToken()
+      localStorage.removeItem('user')
+      if (!publicPaths.includes(path)) router.replace('/login')
+    }
+  }
+})
 </script>
 
 <style>

@@ -4,6 +4,8 @@ from PIL import Image
 from pathlib import Path
 import cv2
 
+from app.config import settings
+
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _MODEL_SRC = os.path.join(_BACKEND_DIR, "face_landmarker.task")
 _OPENCV_DATA_DIR = os.path.join(_BACKEND_DIR, "opencv_data")
@@ -53,11 +55,7 @@ class FaceService:
         else:
             print(f"OpenCV face cascades loaded: {len(self.cascades)}")
         self._try_load_model()
-        default_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "face_images",
-        )
-        self.face_images_dir = os.getenv("FACE_IMAGES_DIR", default_dir)
+        self.face_images_dir = settings.face_images_dir
         os.makedirs(self.face_images_dir, exist_ok=True)
         self.recognizer = None
         self.recognizer_trained = False

@@ -10,8 +10,9 @@ from app.config import settings
 from app.database import get_db
 from app.models.face import FaceEncoding
 from app.models.user import User
-from app.schemas.user import FaceLogin, FaceRegister, TokenResponse, UserLogin, UserRegister
+from app.schemas.user import FaceLogin, FaceRegister, TokenResponse, UserInfo, UserLogin, UserRegister
 from app.services.face_service import face_service
+from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -49,6 +50,20 @@ def login_password(data: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     token = create_token(user.id, user.username)
     return TokenResponse(access_token=token, username=user.username)
+
+
+@router.get("/me", response_model=UserInfo)
+def get_me(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="用户不存在或登录已失效，请重新登录",
+        )
+    return user
 
 
 @router.post("/register/face")

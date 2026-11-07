@@ -11,3 +11,5 @@ export const registerFace = (username, imageBase64) =>
 
 export const loginFace = (username, imageBase64) =>
   api.post('/auth/login/face', { username, image_base64: imageBase64 })
+
+export const getMe = () => api.get('/auth/me')

@@ -6,7 +6,7 @@ from typing import List
 from app.config import settings
 
 class DocumentParser:
-    EXTRACT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
+    EXTRACT_DIR = settings.upload_dir
     os.makedirs(EXTRACT_DIR, exist_ok=True)
     _ocr_engine = None
 

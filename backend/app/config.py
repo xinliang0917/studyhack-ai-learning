@@ -2,13 +2,24 @@ import os
 from dotenv import load_dotenv
 
 # Use absolute path so it works regardless of working directory
-_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_env_path = os.path.join(_BACKEND_DIR, ".env")
 if os.path.exists(_env_path):
     load_dotenv(_env_path)
 
 
 class Settings:
     def __init__(self):
+        self.data_dir = os.getenv("DATA_DIR", _BACKEND_DIR)
+        try:
+            os.makedirs(self.data_dir, exist_ok=True)
+        except OSError as exc:
+            print(f"Data dir {self.data_dir} is not writable, falling back: {exc}")
+            self.data_dir = _BACKEND_DIR
+            os.makedirs(self.data_dir, exist_ok=True)
+        self.upload_dir = os.getenv("UPLOAD_DIR", os.path.join(self.data_dir, "uploads"))
+        self.vector_dir = os.getenv("VECTOR_DIR", os.path.join(self.data_dir, "vector_index"))
+        self.face_images_dir = os.getenv("FACE_IMAGES_DIR", os.path.join(self.data_dir, "face_images"))
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
@@ -55,7 +66,16 @@ class Settings:
     @property
     def database_url(self) -> str:
         if self.use_sqlite:
-            db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), self.sqlite_path)
+            db_path = self.sqlite_path
+            if not os.path.isabs(db_path):
+                db_path = os.path.join(self.data_dir, db_path)
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+            if not os.path.exists(db_path) and self.data_dir != _BACKEND_DIR:
+                legacy = os.path.join(_BACKEND_DIR, self.sqlite_path)
+                if not os.path.isabs(self.sqlite_path) and os.path.exists(legacy):
+                    import shutil
+                    shutil.copy2(legacy, db_path)
+                    print(f"Migrated legacy SQLite database to {db_path}")
             return f"sqlite:///{db_path}"
         return f"mysql+pymysql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
 

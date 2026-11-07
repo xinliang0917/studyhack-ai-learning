@@ -12,10 +12,7 @@ import numpy as np
 
 from app.config import settings
 
-_DEFAULT_VECTOR_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vector_index"
-)
-VECTOR_DIR = os.getenv("VECTOR_DIR", _DEFAULT_VECTOR_DIR)
+VECTOR_DIR = settings.vector_dir
 os.makedirs(VECTOR_DIR, exist_ok=True)
 
 
