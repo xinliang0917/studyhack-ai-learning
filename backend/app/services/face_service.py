@@ -4,27 +4,54 @@ from PIL import Image
 from pathlib import Path
 import cv2
 
-_MODEL_SRC = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "face_landmarker.task"
-)
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_MODEL_SRC = os.path.join(_BACKEND_DIR, "face_landmarker.task")
+_OPENCV_DATA_DIR = os.path.join(_BACKEND_DIR, "opencv_data")
+
+
+def _cascade_candidates(filename):
+    candidates = [os.path.join(_OPENCV_DATA_DIR, filename)]
+    cv2_data = getattr(cv2, "data", None)
+    haar_dir = getattr(cv2_data, "haarcascades", None)
+    if haar_dir:
+        candidates.append(os.path.join(haar_dir, filename))
+    candidates.extend([
+        os.path.join("/usr/share/opencv4/haarcascades", filename),
+        os.path.join("/usr/local/share/opencv4/haarcascades", filename),
+        os.path.join("/usr/share/opencv/haarcascades", filename),
+    ])
+    return candidates
+
+
+def _load_cascade(filename):
+    for path in _cascade_candidates(filename):
+        if not os.path.exists(path):
+            continue
+        cascade = cv2.CascadeClassifier(path)
+        if not cascade.empty():
+            return cascade, path
+    return cv2.CascadeClassifier(), None
+
 
 class FaceService:
     def __init__(self):
         self.detector = None
         self.model_loaded = False
-        self.cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        self.cascade, default_path = _load_cascade(
+            "haarcascade_frontalface_default.xml"
         )
-        self.alt_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml"
+        self.alt_cascade, alt_path = _load_cascade(
+            "haarcascade_frontalface_alt2.xml"
         )
+        print(f"OpenCV face data: {default_path}, {alt_path}")
         self.cascades = [
             cascade for cascade in (self.cascade, self.alt_cascade)
             if cascade is not None and not cascade.empty()
         ]
         if not self.cascades:
             print("OpenCV face cascades failed to load")
+        else:
+            print(f"OpenCV face cascades loaded: {len(self.cascades)}")
         self._try_load_model()
         default_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -242,6 +269,11 @@ class FaceService:
                     print(f'save_face_sample MP fallback error: {e}')
                     return False
             else:
+                height, width = gray.shape[:2]
+                print(
+                    f"save_face_sample: no face detected image={width}x{height} "
+                    f"cascades={len(self.cascades)} mediapipe={self.model_loaded}"
+                )
                 return False
             roi = cv2.resize(face_roi, (200, 200))
             existing = list(Path(self.face_images_dir).glob(f"user_{user_id}_*.jpg"))
