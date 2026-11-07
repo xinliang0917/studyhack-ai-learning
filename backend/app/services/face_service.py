@@ -207,9 +207,8 @@ class FaceService:
             print(f"CV extraction error: {e}")
             return None
 
-    def compare_faces(self, f1, f2, threshold=0.18):
-        # Lower threshold for stricter matching
-        threshold = 0.12
+    def compare_faces(self, f1, f2, threshold=0.12):
+        threshold = float(threshold)
         a1 = np.array(f1, dtype=np.float32).flatten()
         a2 = np.array(f2, dtype=np.float32).flatten()
         # Dimension mismatch check: if lengths differ by more than 5%, reject

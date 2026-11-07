@@ -38,6 +38,8 @@ class Settings:
         self.auth_rate_limit_per_minute = int(os.getenv("AUTH_RATE_LIMIT_PER_MINUTE", "20"))
         self.ocr_enabled = os.getenv("OCR_ENABLED", "false").lower() == "true"
         self.ocr_min_text = int(os.getenv("OCR_MIN_TEXT", "20"))
+        self.face_match_threshold = float(os.getenv("FACE_MATCH_THRESHOLD", "90"))
+        self.face_feature_threshold = float(os.getenv("FACE_FEATURE_THRESHOLD", "0.22"))
         self.asr_enabled = os.getenv("ASR_ENABLED", "false").lower() == "true"
         self.funasr_url = os.getenv("FUNASR_URL", "http://localhost:10095/transcribe")
         self.asr_timeout = int(os.getenv("ASR_TIMEOUT", "120"))
