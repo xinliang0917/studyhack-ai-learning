@@ -22,7 +22,7 @@ class TestDocumentParser:
         path = DocumentParser.save_upload(content, "test.md")
         texts = DocumentParser.parse(path, "md")
         assert len(texts) == 3
-        assert "# Title" in texts
+        assert texts == ["Title", "Subtitle", "Content"]
         os.remove(path)
 
     def test_parse_markdown_extension(self):
@@ -31,6 +31,29 @@ class TestDocumentParser:
         path = DocumentParser.save_upload(content, "test.markdown")
         texts = DocumentParser.parse(path, "markdown")
         assert len(texts) == 2
+        assert texts == ["Heading", "Paragraph"]
+        os.remove(path)
+
+    def test_parse_md_strips_formatting_symbols(self):
+        from app.services.document_parser import DocumentParser
+        content = (
+            "# 标题\n"
+            "**粗体** 和 *斜体*\n"
+            "- 列表项\n"
+            "> 引用\n"
+            "[链接](https://example.com)\n"
+        ).encode("utf-8")
+        path = DocumentParser.save_upload(content, "format.md")
+        texts = DocumentParser.parse(path, "md")
+        assert texts == ["标题", "粗体 和 斜体", "列表项", "引用", "链接"]
+        os.remove(path)
+
+    def test_markdown_to_txt_returns_plain_text(self):
+        from app.services.document_parser import DocumentParser
+        content = b"## Head\nSome **strong** text"
+        path = DocumentParser.save_upload(content, "plain.md")
+        text = DocumentParser.markdown_to_txt(path)
+        assert text == "Head\nSome strong text"
         os.remove(path)
 
     def test_unsupported_type_raises_error(self):

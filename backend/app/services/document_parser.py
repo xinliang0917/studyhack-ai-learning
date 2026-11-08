@@ -1,9 +1,19 @@
 ﻿import io
 import os
+import re
 import uuid
 from typing import List
 
 from app.config import settings
+
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s*")
+_MD_BLOCKQUOTE_RE = re.compile(r"^\s{0,3}>\s?")
+_MD_LIST_RE = re.compile(r"^\s*(?:[-+*]|\d+\.)\s+")
+_MD_HR_RE = re.compile(r"^\s{0,3}(?:[-*_]\s*){3,}$")
+_MD_HTML_RE = re.compile(r"<[^>]+>")
+_MD_EMPHASIS_RE = re.compile(r"[*_~`]+")
 
 class DocumentParser:
     EXTRACT_DIR = settings.upload_dir
@@ -121,10 +131,45 @@ class DocumentParser:
         return [line.strip() for line in content.split("\n") if line.strip()]
 
     @staticmethod
+    def _markdown_to_text(content: str) -> str:
+        lines = []
+        in_code_block = False
+        for raw_line in content.split("\n"):
+            line = raw_line.rstrip()
+            stripped = line.strip()
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                in_code_block = not in_code_block
+                continue
+            if in_code_block:
+                lines.append(line)
+                continue
+            if not stripped:
+                lines.append("")
+                continue
+            if _MD_HR_RE.match(stripped):
+                continue
+            line = _MD_IMAGE_RE.sub(r"\1", line)
+            line = _MD_LINK_RE.sub(r"\1", line)
+            line = _MD_HEADING_RE.sub("", line)
+            line = _MD_BLOCKQUOTE_RE.sub("", line)
+            line = _MD_LIST_RE.sub("", line)
+            line = _MD_HTML_RE.sub("", line)
+            line = _MD_EMPHASIS_RE.sub("", line)
+            lines.append(line.strip())
+        return "\n".join(lines)
+
+    @staticmethod
     def _parse_md(file_path: str) -> List[str]:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-        return [line for line in content.split("\n") if line.strip()]
+        text = DocumentParser._markdown_to_text(content)
+        return [line for line in text.split("\n") if line.strip()]
+
+    @staticmethod
+    def markdown_to_txt(file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        return DocumentParser._markdown_to_text(content)
 
     @staticmethod
     def save_upload(file_content: bytes, filename: str, user_id: int = None) -> str:

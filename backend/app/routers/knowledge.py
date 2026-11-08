@@ -147,10 +147,22 @@ async def upload_document(
     except Exception as exc:
         DocumentParser.delete_file(file_path)
         raise HTTPException(status_code=400, detail=f"文档解析失败：{exc}") from exc
+
+    filename = file.filename
+    if ext in ("md", "markdown"):
+        txt_content = "\n".join(texts).encode("utf-8")
+        txt_name = f"{_os.path.splitext(file.filename)[0] or 'document'}.txt"
+        txt_path = DocumentParser.save_upload(txt_content, txt_name, user_id)
+        DocumentParser.delete_file(file_path)
+        file_path = txt_path
+        content = txt_content
+        filename = txt_name
+        ext = "txt"
+
     doc = _create_document(
-        db, user_id, file.filename, ext, content, file_path, texts
+        db, user_id, filename, ext, content, file_path, texts
     )
-    return UploadResponse(id=doc.id, filename=file.filename, message="Document uploaded and indexed")
+    return UploadResponse(id=doc.id, filename=filename, message="Document uploaded and indexed")
 
 
 @router.post("/transcribe", response_model=UploadResponse)
